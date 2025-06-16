@@ -2,7 +2,7 @@
 一个小小的窗口程序，可以显示实时金价
 
 ## 使用教程：
-1.从左边的release中，直接下载GoldPriceBubble_版本号.exe
+1.从左边的*Releases*中，直接下载GoldPriceBubble_版本号.exe
 
 2.双击打开
 
