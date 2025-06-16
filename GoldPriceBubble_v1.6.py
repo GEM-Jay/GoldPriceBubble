@@ -226,6 +226,7 @@ class GoldPriceBubble:
             pystray.MenuItem("关于", show_about),
             pystray.MenuItem("退出", on_quit)
         )
+        
 
         icon = pystray.Icon("gold_ball", self.create_icon(), "GoldPriceBubble v1.5", menu)
         threading.Thread(target=icon.run, daemon=True).start()
