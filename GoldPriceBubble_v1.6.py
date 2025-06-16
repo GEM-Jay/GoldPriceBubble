@@ -229,7 +229,7 @@ class GoldPriceBubble:
 
         icon = pystray.Icon("gold_ball", self.create_icon(), "GoldPriceBubble v1.5", menu)
         threading.Thread(target=icon.run, daemon=True).start()
-
+        # asda 
     def run(self):
         self.root.mainloop()
 
