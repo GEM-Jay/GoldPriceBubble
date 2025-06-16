@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="4566ec94-a18b-47f3-9330-670a11f8c370" name="更改" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/GoldPriceBubble.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/MarsCodeWorkspaceAppSettings.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/Analysis-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/EXE-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/GoldPriceBubble.pkg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/PKG-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/PYZ-00.pyz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/PYZ-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/base_library.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/warn-GoldPriceBubble.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble/xref-GoldPriceBubble.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/Analysis-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/EXE-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/GoldPriceBubble2.0.pkg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/PKG-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/PYZ-00.pyz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/PYZ-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/base_library.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/warn-GoldPriceBubble2.0.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble2.0/xref-GoldPriceBubble2.0.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/Analysis-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/EXE-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/GoldPriceBubble_final.pkg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/PKG-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/PYZ-00.pyz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/PYZ-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/base_library.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/warn-GoldPriceBubble_final.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_final/xref-GoldPriceBubble_final.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/Analysis-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/EXE-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/GoldPriceBubble_v1.3.pkg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/PKG-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/PYZ-00.pyz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/PYZ-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/base_library.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/warn-GoldPriceBubble_v1.3.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.3/xref-GoldPriceBubble_v1.3.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/Analysis-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/EXE-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/GoldPriceBubble_v1.4.pkg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/PKG-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/PYZ-00.pyz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/PYZ-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/base_library.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/warn-GoldPriceBubble_v1.4.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.4/xref-GoldPriceBubble_v1.4.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/Analysis-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/EXE-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/GoldPriceBubble_v1.5.pkg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/PKG-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/PYZ-00.pyz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/PYZ-00.toc" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/base_library.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/warn-GoldPriceBubble_v1.5.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/build/GoldPriceBubble_v1.5/xref-GoldPriceBubble_v1.5.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/deployment.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;GEM-Jay&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;git@github.com:GEM-Jay/GoldPriceBubble.git&quot;,
+    &quot;accountId&quot;: &quot;0efffdbc-5da2-4e26-84bb-f56aca0bd42d&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 8
+}</component>
+  <component name="ProjectId" id="2yZfEOVhaS4TNX9Nd2Ql24w4sfF" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/Workspaces/GoldPriceBubble&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="D:\Workspaces\GoldPriceBubble" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="D:\Workspaces\GoldPriceBubble" />
+    </key>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-7c0b70fcd90d-JavaScript-PY-242.21829.153" />
+        <option value="bundled-python-sdk-464836ebc622-b74155a9e76b-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-242.21829.153" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="应用程序级" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="默认任务">
+      <changelist id="4566ec94-a18b-47f3-9330-670a11f8c370" name="更改" comment="" />
+      <created>1750046903625</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1750046903625</updated>
+      <workItem from="1750046904644" duration="16092000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>
