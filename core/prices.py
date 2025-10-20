@@ -6,7 +6,7 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 import certifi
 
-SERVER_URL  = "http://123.207.22.15:8787"                # 你的服务端地址
+SERVER_URL  = "your url"                # 你的服务端地址
 API_KEY     = "changeme"                # 你的 API key
 TIMEOUT_S   = 5.0
 MAX_STALE   = 8
