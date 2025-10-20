@@ -1,6 +1,4 @@
-########################################
 # core/singleton.py
-########################################
 import socket, sys
 import tkinter.messagebox as msg
 

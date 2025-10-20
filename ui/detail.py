@@ -93,7 +93,7 @@ class DetailWindow:
         header = ttk.Frame(self.win, padding=(16, 14, 16, 8)); header.pack(fill=tk.X)
         self.lbl_pos = ttk.Label(header, text="", style="Title.TLabel"); self.lbl_pos.pack(side=tk.LEFT)
 
-        # ---- 交易卡片 ----
+        #交易卡片
         trade_card = ttk.Labelframe(self.win, labelwidget=ttk.Label(self.win, text="交易（按当前黄金T+D价）"), style="Card.TLabelframe")
         trade_card.pack(fill=tk.X, padx=16, pady=(8, 8))
         tfrm = ttk.Frame(trade_card, padding=12); tfrm.pack(fill=tk.X)
@@ -116,15 +116,30 @@ class DetailWindow:
         ttk.Button(btns, text="买入", style="Primary.TButton", command=self._buy).pack(side=tk.LEFT, padx=6)
         ttk.Button(btns, text="卖出", command=self._sell).pack(side=tk.LEFT, padx=6)
 
-        # ---- 校正均价 ----
-        adj_card = ttk.Labelframe(self.win, labelwidget=ttk.Label(self.win, text="校正均价（手动修正成本价/克）"), style="Card.TLabelframe")
+        #校正均价 + 总克数 + 仓名
+        adj_card = ttk.Labelframe(self.win, labelwidget=ttk.Label(self.win, text="校正（可同时修改仓名 / 总克数 / 均价）"), style="Card.TLabelframe")
         adj_card.pack(fill=tk.X, padx=16, pady=8)
         afr = ttk.Frame(adj_card, padding=12); afr.pack(fill=tk.X)
-        ttk.Label(afr, text="新的均价/克 (¥)").grid(row=0, column=0, sticky="e", padx=8, pady=6)
-        self.ent_new_avg = ttk.Entry(afr, width=16); self.ent_new_avg.grid(row=0, column=1, sticky="w")
-        ttk.Button(afr, text="应用", style="Primary.TButton", command=self._apply_new_avg).grid(row=0, column=2, padx=8)
 
-        # ---- 流水 ----
+        r = 0
+        ttk.Label(afr, text="新仓名（可选）").grid(row=r, column=0, sticky="e", padx=8, pady=6)
+        self.ent_new_name = ttk.Entry(afr, width=24)
+        self.ent_new_name.insert(0, self.portfolio["name"])
+        self.ent_new_name.grid(row=r, column=1, sticky="w"); r += 1
+
+        ttk.Label(afr, text="新的总克数 (g)").grid(row=r, column=0, sticky="e", padx=8, pady=6)
+        self.ent_new_grams = ttk.Entry(afr, width=16)
+        self.ent_new_grams.insert(0, f"{self.portfolio['grams']:.3f}")
+        self.ent_new_grams.grid(row=r, column=1, sticky="w"); r += 1
+
+        ttk.Label(afr, text="新的均价/克 (¥)").grid(row=r, column=0, sticky="e", padx=8, pady=6)
+        self.ent_new_avg = ttk.Entry(afr, width=16)
+        self.ent_new_avg.insert(0, f"{self.portfolio['cost_per_g']:.2f}")
+        self.ent_new_avg.grid(row=r, column=1, sticky="w")
+
+        ttk.Button(afr, text="应用", style="Primary.TButton", command=self._apply_adjustments).grid(row=r, column=2, padx=8)
+
+        #流水
         log_card = ttk.Labelframe(self.win, labelwidget=ttk.Label(self.win, text="流水记录"), style="Card.TLabelframe")
         log_card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 16))
         lfrm = ttk.Frame(log_card, padding=8); lfrm.pack(fill=tk.BOTH, expand=True)
@@ -146,7 +161,7 @@ class DetailWindow:
         self._refresh_header()
         self._refresh_log()
 
-    # ---------- 属性 ----------
+    # 属性
     @property
     def portfolio(self):
         return self.app.portfolios[self.index]
@@ -157,7 +172,6 @@ class DetailWindow:
         except Exception:
             return geom
 
-    # 从 probe_all_lines 找 “黄金T+D / Au(T+D)” 报价
     def _inner_price(self):
         try:
             lines = probe_all_lines()
@@ -173,7 +187,7 @@ class DetailWindow:
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # ---------- 头部 / 流水 ----------
+    # 头部 / 流水
     def _refresh_header(self):
         inner = self._inner_price()
         g = self.portfolio["grams"]; avg = self.portfolio["cost_per_g"]
@@ -201,9 +215,8 @@ class DetailWindow:
                 self.log.item(iid, tags=("odd",))
         self.log.tag_configure("odd", background="#F7F8FA")
 
-    # ---------- 交互/校验 ----------
+    #交互
     def _on_fee_toggle(self):
-        """勾选‘含手续费’时启用费率输入，否则禁用并归零。"""
         on = bool(self.var_fee_on.get())
         try:
             if on:
@@ -213,13 +226,11 @@ class DetailWindow:
                 self.ent_fee.delete(0, tk.END)
                 self.ent_fee.insert(0, "0")
         except Exception:
-            # 兼容某些主题不支持 state()
             self.ent_fee.configure(state=("normal" if on else "disabled"))
             if not on:
                 self.ent_fee.delete(0, tk.END); self.ent_fee.insert(0, "0")
 
     def _read_trade(self):
-        # 数量：必须 > 0
         try:
             qty = float(self.ent_qty.get())
             if qty <= 0:
@@ -227,7 +238,6 @@ class DetailWindow:
         except Exception:
             msg.showwarning("提示", "请输入有效数量(克)"); return None
 
-        # 费率：仅在勾选时读取，且须为非负
         fee_rate = 0.0
         if self.var_fee_on.get():
             try:
@@ -238,7 +248,7 @@ class DetailWindow:
                 msg.showwarning("提示", "请输入有效费率(%)"); return None
         return qty, fee_rate
 
-    # ---------- 交易 ----------
+    # 交易
     def _buy(self):
         inner = self._inner_price()
         if inner is None:
@@ -284,18 +294,42 @@ class DetailWindow:
             "post_grams": float(post_g), "post_avg": float(post_avg)
         })
 
-    def _apply_new_avg(self):
+    #统一应用仓名、克数、均价的校正
+    def _apply_adjustments(self):
+        new_name = self.ent_new_name.get().strip()
         try:
-            new_avg = float(self.ent_new_avg.get())
+            new_grams_str = self.ent_new_grams.get().strip()
+            new_grams = float(new_grams_str) if new_grams_str != "" else self.portfolio["grams"]
+            if new_grams < 0:
+                msg.showwarning("提示", "新的总克数需为非负"); return
+        except Exception:
+            msg.showwarning("提示", "请输入有效的总克数 (g)"); return
+        try:
+            new_avg_str = self.ent_new_avg.get().strip()
+            new_avg = float(new_avg_str) if new_avg_str != "" else self.portfolio["cost_per_g"]
             if new_avg < 0:
                 msg.showwarning("提示", "新的均价需非负"); return
         except Exception:
             msg.showwarning("提示", "请输入有效均价"); return
+        if new_grams == 0:
+            new_avg = 0.0
 
+        if new_name:
+            self.portfolio["name"] = new_name
+            try:
+                self.win.title(f"仓库管理 - {self.portfolio['name']}")
+            except Exception:
+                pass
+
+        self.portfolio["grams"] = new_grams
         self.portfolio["cost_per_g"] = new_avg
-        self._append("ADJ", 0.0, 0.0, 0.0, 0.0, self.portfolio["grams"], new_avg)
+
+        # 记录一条 ADJ 流水
+        self._append("ADJ", 0.0, 0.0, 0.0, 0.0, new_grams, new_avg)
+
+        # 刷新 & 落盘 & 通知
         self._after_change()
-        msg.showinfo("成功", "均价已校正")
+        msg.showinfo("成功", "已应用校正")
 
     def _after_change(self):
         # 刷新本页
@@ -303,11 +337,9 @@ class DetailWindow:
         self._refresh_log()
         self.app.save_all()
 
-        # 通知上层（ManagerWindow），它会继续通知 Bubble 刷新盈亏
         if callable(self.on_change):
             self.on_change()
 
-        # 保险：直接通知 App -> Bubble（避免某些情况下回调被覆盖）
         if hasattr(self.app, "notify_portfolios_changed"):
             try:
                 self.app.notify_portfolios_changed(self.app.portfolios, self.app.active_index)

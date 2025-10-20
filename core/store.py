@@ -1,6 +1,4 @@
-########################################
 # core/store.py
-########################################
 import os, json
 from .resource import data_dir_in_appdata
 

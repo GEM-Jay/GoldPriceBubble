@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-# 客户端从服务端取价：保持 probe_all_lines() 接口不变
+# 抓包逻辑，需要自己写
 import time, json, random, traceback
 from typing import List, Optional
 
@@ -7,12 +6,11 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 import certifi
 
-# ===== 直接硬编码配置（不再读取文件/环境变量）=====
-SERVER_URL  = "http://123.207.22.15:8787"   # 你的服务端地址（支持 http/https）
+SERVER_URL  = "http://123.207.22.15:8787"                # 你的服务端地址
 API_KEY     = "changeme"                # 你的 API key
-TIMEOUT_S   = 5.0                       # 客户端请求超时（秒）
-MAX_STALE   = 8                         # 失败后可接受的缓存陈旧秒数
-DEBUG_MODE  = False                     # 调试日志开关：True/False
+TIMEOUT_S   = 5.0
+MAX_STALE   = 8
+DEBUG_MODE  = False
 
 _session: Optional[requests.Session] = None
 _last_lines: List[str] = []
@@ -20,8 +18,8 @@ _last_ok_ts: float = 0.0
 
 def _build_session() -> requests.Session:
     s = requests.Session()
-    s.trust_env = False                 # 不继承系统代理环境变量（避免误走公司代理）
-    s.verify = certifi.where()          # 显式指定根证书（对 http 无影响）
+    s.trust_env = False
+    s.verify = certifi.where()
     s.headers.update({"User-Agent": "GoldPriceBubble/Client"})
 
     retries = Retry(
@@ -47,10 +45,6 @@ def _lines_url() -> str:
     return f"{base}/api/v1/lines?key={API_KEY}&t={int(time.time()*1000)}{random.randint(10,99)}"
 
 def probe_all_lines() -> List[str]:
-    """
-    拉取：{"updated_at": 1710000000, "lines": ["伦敦金,4296.00", ...]}
-    返回: ["名称,价格", ...]
-    """
     global _last_lines, _last_ok_ts
 
     url = _lines_url()
@@ -78,12 +72,10 @@ def probe_all_lines() -> List[str]:
                 pass
             traceback.print_exc()
 
-    # 失败时，若有不超过 MAX_STALE 秒的本地缓存，先用缓存兜底
     if _last_lines and (time.time() - _last_ok_ts) <= MAX_STALE:
         return list(_last_lines)
     return []
 
-# --------- 可执行主入口：本地自测 ---------
 if __name__ == "__main__":
     print("SERVER_URL =", SERVER_URL)
     print("API_KEY    =", API_KEY)

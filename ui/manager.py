@@ -50,7 +50,6 @@ class ManagerWindow:
         self._refresh()
         self.tree.bind("<Double-Button-1>", lambda _e: self._open_detail())
 
-    # ---------- utils ----------
     def _dpi(self, geom: str):
         try:
             w, h = geom.lower().split("x")
@@ -59,11 +58,9 @@ class ManagerWindow:
             return geom
 
     def _notify_bubble(self):
-        """把最新 portfolios 同步给气泡（不重建、不新托盘）。"""
         if hasattr(self.app, "notify_portfolios_changed"):
             self.app.notify_portfolios_changed(self.app.portfolios, self.app.active_index)
         elif getattr(self.app, "bubble", None):
-            # 兜底：老版本没有 notify_... 时，直接让气泡重载状态
             try:
                 self.app.bubble.reload_all(
                     display_quotes=self.app.display_quotes,
@@ -73,7 +70,6 @@ class ManagerWindow:
             except Exception:
                 pass
 
-    # ---------- list ----------
     def _refresh(self):
         for i in self.tree.get_children():
             self.tree.delete(i)
@@ -93,9 +89,8 @@ class ManagerWindow:
             return None
         return int(sel[0])
 
-    # ---------- actions ----------
     def _new(self):
-        # 新建完成后：刷新 + 保存 + 通知气泡（便于立刻出现“总仓盈亏”行）
+        # 刷新 + 保存 + 通知气泡
         def _done():
             self._refresh()
             self.app.save_all()
@@ -125,7 +120,6 @@ class ManagerWindow:
         if idx is None:
             msg.showwarning("提示", "请先选择一个仓库"); return
 
-        # 改为独立方法，内部会刷新+保存+通知 Bubble
         DetailWindow(
             self.app, idx,
             on_change=self._on_detail_change,

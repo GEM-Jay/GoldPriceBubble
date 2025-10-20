@@ -1,5 +1,4 @@
-requests
-pillow
-pystray
-loguru
-pywin32
+certifi==2025.10.5
+Pillow==12.0.0
+pystray==0.19.5
+Requests==2.32.5

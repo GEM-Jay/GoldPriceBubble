@@ -1,6 +1,4 @@
-########################################
 # utils/icons.py
-########################################
 import os, tkinter as tk
 from PIL import Image as PILImage
 from core.resource import resource_path
