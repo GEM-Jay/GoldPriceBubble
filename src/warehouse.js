@@ -61,7 +61,7 @@ function formatDateTime(timestamp) {
 function getDisplayName(code) {
   const nameMap = {
     'gds_AUTD': '民生银行积存金',
-    'SGE-Au(T+D)': '上海黄金交易所金价',
+    'SGE-Au(T+D)': '上海金',
     '21001001000001': '民生银行积存金',
     'CZB-JCJ': '浙江商业银行积存金'
   };
@@ -191,6 +191,8 @@ function renderWarehouseDetail(id) {
           <h3 class="block-title">当前库情况</h3>
           <button class="btn btn-danger btn-small" onclick="warehouseModule.deleteWarehouse('${id}')">删除仓库</button>
         </div>
+        
+        <!-- 状态数据块 -->
         <div class="status-grid">
           <div class="status-item">
             <span class="status-label">当前价格</span>
@@ -206,7 +208,7 @@ function renderWarehouseDetail(id) {
           </div>
           <div class="status-item ${pnl >= 0 ? 'positive' : 'negative'}">
             <span class="status-label">盈亏</span>
-            <span class="status-value" id="warehouse-pnl-${id}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ¥ (${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%)</span>
+            <span class="status-value" id="warehouse-pnl-${id}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ¥</span>
           </div>
           <div class="status-item">
             <span class="status-label">成本价</span>
@@ -215,6 +217,25 @@ function renderWarehouseDetail(id) {
           <div class="status-item">
             <span class="status-label">总成本</span>
             <span class="status-value">${fmt(totalCost, 2)} ¥</span>
+          </div>
+        </div>
+        
+        <!-- 仓库信息表单 -->
+        <div class="warehouse-info-form">
+          <div class="form-row">
+            <label>仓库名称</label>
+            <input type="text" id="rename-input-${id}" placeholder="当前" value="${warehouse.name}">
+            <button class="btn btn-secondary btn-small" onclick="warehouseModule.renameWarehouse('${id}')">重命名</button>
+          </div>
+          <div class="form-row">
+            <label>价格参考</label>
+            <select id="refprice-select-${id}" onchange="warehouseModule.changeRefPrice('${id}')">
+              ${PRICES.filter(p => getCurrency(p.code) === '￥').map(p => `
+                <option value="${p.code}" ${p.code === warehouse.refPrice ? 'selected' : ''}>
+                  ${getDisplayName(p.code)}
+                </option>
+              `).join('')}
+            </select>
           </div>
         </div>
       </div>
@@ -422,6 +443,77 @@ function selectWarehouse(id) {
 // ============================================
 // 删除仓库
 // ============================================
+// 重命名仓库
+function renameWarehouse(id) {
+  const warehouses = loadWarehouses();
+  const warehouse = warehouses.find(w => w.id === id);
+  
+  if (!warehouse) {
+    alert('仓库不存在！');
+    return;
+  }
+  
+  // 从输入框获取新名称
+  const renameInput = document.getElementById(`rename-input-${id}`);
+  if (!renameInput) {
+    alert('输入框不存在！');
+    return;
+  }
+  
+  const newName = renameInput.value.trim();
+  
+  if (!newName) {
+    alert('仓库名称不能为空！');
+    return;
+  }
+  
+  // 检查名称是否重复
+  if (warehouses.some(w => w.id !== id && w.name === newName)) {
+    alert('仓库名称已存在！');
+    return;
+  }
+  
+  // 更新名称
+  warehouse.name = newName;
+  saveWarehouses(warehouses);
+  
+  // 刷新显示
+  renderWarehouseList();
+  
+  // 触发仓库变化事件
+  window.dispatchEvent(new CustomEvent('warehousesChanged'));
+}
+
+// 修改价格参考对象
+function changeRefPrice(id) {
+  const warehouses = loadWarehouses();
+  const warehouse = warehouses.find(w => w.id === id);
+  
+  if (!warehouse) {
+    alert('仓库不存在！');
+    return;
+  }
+  
+  // 从下拉菜单获取新的价格参考
+  const refPriceSelect = document.getElementById(`refprice-select-${id}`);
+  if (!refPriceSelect) {
+    alert('下拉菜单不存在！');
+    return;
+  }
+  
+  const newRefPrice = refPriceSelect.value;
+  
+  // 更新价格参考
+  warehouse.refPrice = newRefPrice;
+  saveWarehouses(warehouses);
+  
+  // 刷新显示
+  renderWarehouseList();
+  
+  // 触发仓库变化事件
+  window.dispatchEvent(new CustomEvent('warehousesChanged'));
+}
+
 function deleteWarehouse(id) {
   if (!confirm('确定要删除这个仓库吗？所有交易记录将被清除。')) {
     return;
@@ -679,7 +771,7 @@ function updateWarehouseRealTimeData() {
   }
 
   if (pnlEl) {
-    pnlEl.innerHTML = `${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ¥ <span class="pnl-percent">(${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%)</span>`;
+    pnlEl.innerHTML = `${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ¥`;
     const parentCell = pnlEl.closest('.info-cell');
     if (parentCell) {
       parentCell.classList.remove('positive', 'negative');
@@ -740,7 +832,7 @@ function updatePriceDisplay(id) {
     } else if (label === '当前市值：') {
       valueSpan.textContent = `${fmt(currentValue, 2)} ￥`;
     } else if (label === '盈亏：') {
-      valueSpan.textContent = `${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ￥ (${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%)`;
+      valueSpan.textContent = `${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ￥`;
       item.className = `info-item ${pnl >= 0 ? 'profit' : 'loss'}`;
     }
   });
@@ -757,6 +849,8 @@ window.warehouseModule = {
   cancelNewWarehouse,
   createWarehouse,
   selectWarehouse,
+  renameWarehouse,
+  changeRefPrice,
   deleteWarehouse,
   buy,
   sell,

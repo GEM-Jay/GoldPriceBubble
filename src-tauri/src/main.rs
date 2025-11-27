@@ -2,7 +2,7 @@
 
 use std::sync::Mutex;
 use tauri::{
-    AppHandle, CustomMenuItem, Manager, PhysicalPosition, PhysicalSize, LogicalSize, SystemTray,
+    AppHandle, CustomMenuItem, Manager, PhysicalPosition, LogicalSize, SystemTray,
     SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem, Window,
 };
 use window_shadows::set_shadow;
@@ -10,6 +10,7 @@ use window_shadows::set_shadow;
 // ========== 状态管理 ==========
 struct AppState {
     bubble_visible: Mutex<bool>,
+    auto_start_enabled: Mutex<bool>,
 }
 
 // ========== Tauri Commands ==========
@@ -17,8 +18,13 @@ struct AppState {
 #[tauri::command]
 async fn open_manager(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_window("manager") {
+        window.unminimize().map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
+        
+        // 强制窗口显示在前面
+        window.set_always_on_top(true).map_err(|e| e.to_string())?;
+        window.set_always_on_top(false).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -200,7 +206,7 @@ async fn clear_all_data_and_quit(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn set_auto_start(_app: AppHandle, enabled: bool) -> Result<(), String> {
+async fn set_auto_start(app: AppHandle, enabled: bool) -> Result<(), String> {
     use auto_launch::*;
     
     let app_name = "GoldPrice";
@@ -217,6 +223,11 @@ async fn set_auto_start(_app: AppHandle, enabled: bool) -> Result<(), String> {
     } else {
         auto.disable().map_err(|e| e.to_string())?;
     }
+    
+    // Update state and tray menu
+    let state: tauri::State<AppState> = app.state();
+    *state.auto_start_enabled.lock().unwrap() = enabled;
+    update_tray_menu(&app);
     
     Ok(())
 }
@@ -261,19 +272,28 @@ async fn refresh_bubble(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ========== 辅助函数 ==========
+fn set_bubble_to_default_position(window: &Window) -> Result<(), String> {
+    // Position at top-left corner with 20px margin
+    let x = 20;
+    let y = 20;
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ========== 系统托盘 ==========
 fn create_tray_menu() -> SystemTray {
-    let manager_item = CustomMenuItem::new("manager".to_string(), "管理界面");
+    let manager_item = CustomMenuItem::new("manager".to_string(), "显示管理界面");
     let bubble_item = CustomMenuItem::new("bubble_toggle".to_string(), "浮窗显示");
-    let refresh_item = CustomMenuItem::new("refresh".to_string(), "刷新数据");
-    let reset_pos_item = CustomMenuItem::new("reset_position".to_string(), "重置位置");
+    let reset_pos_item = CustomMenuItem::new("reset_position".to_string(), "重置浮窗位置");
     let auto_start_item = CustomMenuItem::new("auto_start".to_string(), "开机自启");
     let quit_item = CustomMenuItem::new("quit".to_string(), "退出");
 
     let tray_menu = SystemTrayMenu::new()
         .add_item(manager_item)
         .add_item(bubble_item)
-        .add_item(refresh_item)
         .add_item(reset_pos_item)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(auto_start_item)
@@ -285,19 +305,19 @@ fn create_tray_menu() -> SystemTray {
 fn update_tray_menu(app: &AppHandle) {
     let state: tauri::State<AppState> = app.state();
     let bubble_visible = *state.bubble_visible.lock().unwrap();
+    let auto_start_enabled = *state.auto_start_enabled.lock().unwrap();
     
-    let manager_item = CustomMenuItem::new("manager".to_string(), "管理界面");
+    let manager_item = CustomMenuItem::new("manager".to_string(), "显示管理界面");
     let bubble_text = if bubble_visible { "✓ 浮窗显示" } else { "浮窗显示" };
     let bubble_item = CustomMenuItem::new("bubble_toggle".to_string(), bubble_text);
-    let refresh_item = CustomMenuItem::new("refresh".to_string(), "刷新数据");
-    let reset_pos_item = CustomMenuItem::new("reset_position".to_string(), "重置位置");
-    let auto_start_item = CustomMenuItem::new("auto_start".to_string(), "开机自启");
+    let reset_pos_item = CustomMenuItem::new("reset_position".to_string(), "重置浮窗位置");
+    let auto_start_text = if auto_start_enabled { "✓ 开机自启" } else { "开机自启" };
+    let auto_start_item = CustomMenuItem::new("auto_start".to_string(), auto_start_text);
     let quit_item = CustomMenuItem::new("quit".to_string(), "退出");
 
     let tray_menu = SystemTrayMenu::new()
         .add_item(manager_item)
         .add_item(bubble_item)
-        .add_item(refresh_item)
         .add_item(reset_pos_item)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(auto_start_item)
@@ -330,8 +350,18 @@ fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
             match id.as_str() {
                 "manager" => {
                     if let Some(window) = app.get_window("manager") {
+                        // 确保窗口显示出来
+                        let _ = window.unminimize();
                         let _ = window.show();
                         let _ = window.set_focus();
+                        let _ = window.set_always_on_top(true);
+                        let _ = window.set_always_on_top(false);
+                        
+                        // 尝试将窗口置顶
+                        #[cfg(target_os = "windows")]
+                        {
+                            let _ = window.set_focus();
+                        }
                     }
                 }
                 "bubble_toggle" => {
@@ -357,13 +387,42 @@ fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
                 }
                 "reset_position" => {
                     if let Some(window) = app.get_window("bubble") {
-                        // Reset to default position (bottom-right)
-                        let _ = window.set_position(PhysicalPosition::new(100, 100));
+                        // Reset to top-left corner
+                        let _ = set_bubble_to_default_position(&window);
                     }
                 }
                 "auto_start" => {
                     // Toggle auto-start
-                    // This would need to store and check state
+                    use auto_launch::*;
+                    
+                    let state: tauri::State<AppState> = app.state();
+                    let mut auto_start_enabled = state.auto_start_enabled.lock().unwrap();
+                    
+                    if let Ok(app_path) = std::env::current_exe() {
+                        if let Ok(auto) = AutoLaunchBuilder::new()
+                            .set_app_name("GoldPrice")
+                            .set_app_path(&app_path.to_string_lossy())
+                            .build()
+                        {
+                            let new_state = !*auto_start_enabled;
+                            let result = if new_state {
+                                auto.enable()
+                            } else {
+                                auto.disable()
+                            };
+                            
+                            if result.is_ok() {
+                                *auto_start_enabled = new_state;
+                                drop(auto_start_enabled);
+                                update_tray_menu(app);
+                                
+                                // Notify manager window to update checkbox
+                                if let Some(manager_window) = app.get_window("manager") {
+                                    let _ = manager_window.emit("auto-start-changed", new_state);
+                                }
+                            }
+                        }
+                    }
                 }
                 "quit" => {
                     app.exit(0);
@@ -397,10 +456,13 @@ fn main() {
             
             // Setup bubble window
             if let Some(window) = app.get_window("bubble") {
-                // Load saved position
+                // Load saved position or use default top-left
                 let app_handle = app.handle();
                 if let Ok(Some((x, y))) = tauri::async_runtime::block_on(load_bubble_position(app_handle)) {
                     let _ = window.set_position(PhysicalPosition::new(x, y));
+                } else {
+                    // Default position: top-left corner
+                    let _ = set_bubble_to_default_position(&window);
                 }
                 
                 // Always show bubble window on startup
@@ -409,22 +471,46 @@ fn main() {
                 *state.bubble_visible.lock().unwrap() = true;
             }
             
-            // Show manager window
+            // Setup manager window 并在启动时显示
             if let Some(window) = app.get_window("manager") {
-                let _ = window.show();
+                // 监听管理窗口关闭事件，改为隐藏而不是关闭
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        // 阻止默认关闭行为
+                        api.prevent_close();
+                        // 隐藏窗口而不是关闭
+                        let _ = window_clone.hide();
+                    }
+                });
                 
-                // Ensure bubble is shown when manager opens
-                if let Some(bubble_window) = app.get_window("bubble") {
-                    let _ = bubble_window.show();
-                    let state: tauri::State<AppState> = app.state();
-                    *state.bubble_visible.lock().unwrap() = true;
+                // 启动时显示管理窗口
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            
+            // 检查实际的开机自启状态并更新
+            let state: tauri::State<AppState> = app.state();
+            if let Ok(app_path) = std::env::current_exe() {
+                if let Ok(auto) = auto_launch::AutoLaunchBuilder::new()
+                    .set_app_name("GoldPrice")
+                    .set_app_path(&app_path.to_string_lossy())
+                    .build()
+                {
+                    if let Ok(is_enabled) = auto.is_enabled() {
+                        *state.auto_start_enabled.lock().unwrap() = is_enabled;
+                    }
                 }
             }
+            
+            // 更新托盘菜单以反映当前状态
+            update_tray_menu(&app.handle());
             
             Ok(())
         })
         .manage(AppState {
             bubble_visible: Mutex::new(true),
+            auto_start_enabled: Mutex::new(false),
         })
         .system_tray(create_tray_menu())
         .on_system_tray_event(handle_tray_event)

@@ -279,10 +279,11 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #999;
+  background: #34c759; /* 绿色在线状态 */
   flex-shrink: 0;
-  opacity: 0.6;
+  opacity: 1;
   transition: var(--transition);
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.5); /* 柔和发光效果 */
 }
 
 .mode.up {
@@ -330,14 +331,7 @@ body {
   align-items: center;
   gap: 8px;
   color: var(--bubble-text);
-  transition: transform 0.15s ease;
   padding: 3px 0;
-  -webkit-app-region: no-drag;
-  cursor: pointer;
-}
-
-.line:hover {
-  transform: translateX(2px);
 }
 
 .line-name {
@@ -375,9 +369,6 @@ body {
   align-items: baseline;
   gap: 8px;
   padding: 3px 0;
-  -webkit-app-region: no-drag;
-  cursor: pointer;
-  transition: transform 0.15s ease;
 }
 
 .pnl-line:last-of-type {

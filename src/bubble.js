@@ -62,7 +62,7 @@ const DISPLAY_NAME_MAP = {
   
   // 国内金价
   'gds_AUTD': '民生积存',
-  'SGE-Au(T+D)': '上海黄金交易所金价',
+  'SGE-Au(T+D)': '上海金',
   '21001001000001': '民生积存',
   'CZB-JCJ': '浙商积存',
   'ads_AGTD': '建设积存',
@@ -76,7 +76,7 @@ const DISPLAY_NAME_MAP = {
 const state = {
   prices: [],
   oldPrices: {},
-  selectedCodes: [],
+  selectedCodes: ['hf_XAU', 'SGE-Au(T+D)'], // 默认勾选伦敦金和上海金
   bubbleRows: 2,
   bubbleStealth: false,
   bubbleMinimal: false, // 0存在感模式
@@ -111,7 +111,12 @@ function fmt(v, decimals = 2) {
 // ========== 数据持久化 ==========
 function loadConfig() {
   try {
-    state.selectedCodes = JSON.parse(localStorage.getItem('selectedCodes') || '[]');
+    // 如果是首次使用（没有 selectedCodes），保留默认值
+    const savedCodes = localStorage.getItem('selectedCodes');
+    if (savedCodes !== null) {
+      state.selectedCodes = JSON.parse(savedCodes);
+    }
+    
     state.bubbleRows = parseInt(localStorage.getItem('bubbleRows') || '2');
     state.bubbleStealth = localStorage.getItem('bubbleStealth') === 'true';
     state.bubbleMinimal = localStorage.getItem('bubbleMinimal') === 'true';

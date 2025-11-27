@@ -62,7 +62,7 @@ const DISPLAY_NAME_MAP = {
   
   // 国内金价
   'gds_AUTD': '民生积存',
-  'SGE-Au(T+D)': '上海黄金交易所金价',
+  'SGE-Au(T+D)': '上海金',
   '21001001000001': '民生积存',
   'CZB-JCJ': '浙商积存',
   'ads_AGTD': '建设积存',
@@ -75,7 +75,7 @@ const DISPLAY_NAME_MAP = {
 // ========= 状态管理 =========
 const state = {
   prices: [],
-  selectedCodes: [],
+  selectedCodes: ['hf_XAU', 'SGE-Au(T+D)'], // 默认勾选伦敦金和上海金
   bubbleRows: 2,
   bubbleStealth: false,
   bubbleMinimal: false, // 0存在感模式
@@ -87,8 +87,7 @@ const state = {
   selectedPnlWarehouses: [],
   refreshInterval: 2000,
   apiUrl: DEFAULT_API_URL,
-  autoStart: false,
-  showOnStart: false,
+  autoStart: true, // 默认开机自启
 };
 
 // ========== 工具函数 ==========
@@ -136,7 +135,17 @@ window.updateWarehouseSummaryDisplay = updateWarehouseSummaryDisplay;
 // ========== 数据持久化 ==========
 function loadState() {
   try {
-    state.selectedCodes = JSON.parse(localStorage.getItem('selectedCodes') || '[]');
+    // 如果是首次使用（没有 selectedCodes），保留默认值
+    const savedCodes = localStorage.getItem('selectedCodes');
+    if (savedCodes !== null) {
+      state.selectedCodes = JSON.parse(savedCodes);
+    }
+    // 如果是首次使用（没有 autoStart），保留默认值 true
+    const savedAutoStart = localStorage.getItem('autoStart');
+    if (savedAutoStart !== null) {
+      state.autoStart = savedAutoStart === 'true';
+    }
+    
     state.bubbleRows = parseInt(localStorage.getItem('bubbleRows') || '2');
     state.bubbleStealth = localStorage.getItem('bubbleStealth') === 'true';
     state.bubbleMinimal = localStorage.getItem('bubbleMinimal') === 'true';
@@ -148,8 +157,6 @@ function loadState() {
     state.selectedPnlWarehouses = JSON.parse(localStorage.getItem('pnl_selected_warehouses') || '[]');
     state.refreshInterval = parseInt(localStorage.getItem('refreshInterval') || '2000');
     state.apiUrl = localStorage.getItem('apiUrl') || DEFAULT_API_URL;
-    state.autoStart = localStorage.getItem('autoStart') === 'true';
-    state.showOnStart = localStorage.getItem('showOnStart') === 'true';
   } catch (err) {
     console.error('加载配置失败:', err);
   }
@@ -170,7 +177,6 @@ async function saveState() {
     localStorage.setItem('refreshInterval', state.refreshInterval.toString());
     localStorage.setItem('apiUrl', state.apiUrl);
     localStorage.setItem('autoStart', state.autoStart.toString());
-    localStorage.setItem('showOnStart', state.showOnStart.toString());
 
     // 通知气泡窗口更新 (Tauri)
     try {
@@ -660,11 +666,13 @@ function setupBubbleSettings() {
 }
 
 // ========== 应用设置页面 ==========
-function setupAppSettings() {
-  // 开机自启
+async function setupAppSettings() {
+  // 开机自启 - 使用已经同步的状态
   const autoStartCheckbox = document.getElementById('auto-start');
   if (autoStartCheckbox) {
+    // 使用在 init() 中已经同步的状态
     autoStartCheckbox.checked = state.autoStart;
+    
     autoStartCheckbox.addEventListener('change', async (e) => {
       state.autoStart = e.target.checked;
       await saveState();
@@ -673,16 +681,6 @@ function setupAppSettings() {
       } catch (err) {
         console.error('Failed to set auto start:', err);
       }
-    });
-  }
-
-  // 启动时显示气泡
-  const showOnStartCheckbox = document.getElementById('show-on-start');
-  if (showOnStartCheckbox) {
-    showOnStartCheckbox.checked = state.showOnStart;
-    showOnStartCheckbox.addEventListener('change', (e) => {
-      state.showOnStart = e.target.checked;
-      saveState();
     });
   }
 
@@ -1021,6 +1019,24 @@ async function init() {
   // 加载配置
   loadState();
   
+  // 同步开机自启状态
+  try {
+    const systemEnabled = await invoke('get_auto_start_status');
+    const savedAutoStart = localStorage.getItem('autoStart');
+    
+    // 如果是首次使用（没有保存过配置）并且系统未开启，则按默认值开启
+    if (savedAutoStart === null && !systemEnabled && state.autoStart) {
+      await invoke('set_auto_start', { enabled: true });
+      console.log('首次使用，已启用开机自启');
+    }
+    
+    // 同步系统状态到本地
+    state.autoStart = await invoke('get_auto_start_status');
+    localStorage.setItem('autoStart', state.autoStart.toString());
+  } catch (err) {
+    console.error('Failed to sync auto start status on init:', err);
+  }
+  
   // 设置主题和主题配色
   document.body.setAttribute('data-theme', state.bubbleTheme);
   document.body.setAttribute('data-theme-color', state.bubbleThemeColor || 'blue');
@@ -1034,7 +1050,7 @@ async function init() {
   renderWarehousePnlList();
   updatePnlSummary();
   setupBubbleSettings();
-  setupAppSettings();
+  await setupAppSettings();
   renderPreview();
   
   // 渲染仓库列表
@@ -1058,6 +1074,7 @@ async function init() {
   });
   
   // 刷新按钮
+  // Removed refresh button - automatic refresh is handled by interval
   const refreshBtn = document.getElementById('refresh-btn');
   if (refreshBtn) {
     refreshBtn.addEventListener('click', async () => {
@@ -1119,6 +1136,41 @@ async function init() {
     updatePnlSummary();
     renderPreview();
   }, state.refreshInterval);
+  
+  // 监听来自托盘的开机自启状态变化
+  if (window.__TAURI__?.event?.listen) {
+    const listenFn = window.__TAURI__.event.listen;
+    listenFn('auto-start-changed', (event) => {
+      const enabled = event.payload;
+      state.autoStart = enabled;
+      saveState();
+      
+      // 更新复选框状态
+      const autoStartCheckbox = document.getElementById('auto-start');
+      if (autoStartCheckbox) {
+        autoStartCheckbox.checked = enabled;
+      }
+    });
+  }
+  
+  // 监听窗口获得焦点时刷新开机自启状态
+  window.addEventListener('focus', async () => {
+    try {
+      const enabled = await invoke('get_auto_start_status');
+      if (enabled !== state.autoStart) {
+        state.autoStart = enabled;
+        saveState();
+        
+        // 更新复选框状态
+        const autoStartCheckbox = document.getElementById('auto-start');
+        if (autoStartCheckbox) {
+          autoStartCheckbox.checked = enabled;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to get auto start status:', err);
+    }
+  });
 }
 
 // ========== 全局函数（供 HTML onclick 调用）==========
