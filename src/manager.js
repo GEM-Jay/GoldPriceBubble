@@ -204,7 +204,7 @@ function calcNY_LON_DIFF_PCT(prices) {
   const lon = prices.find(p => p.code === 'hf_XAU');
   if (ny && lon && lon.value !== 0) {
     const pct = ((ny.value - lon.value) / lon.value) * 100;
-    return { code: 'CALC_NY_LON_DIFF_PCT', value: pct, name: '纽约伦敦金价差额(%)' };
+    return { code: 'CALC_NY_LON_DIFF_PCT', value: pct, name: '纽伦比' };
   }
   return null;
 }
