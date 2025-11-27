@@ -139,7 +139,7 @@ function calcNY_LON_DIFF(prices) {
   const ny = prices.find(p => p.code === 'hf_GC');
   const lon = prices.find(p => p.code === 'hf_XAU');
   if (ny && lon) {
-    return { code: 'CALC_NY_LON_DIFF', value: ny.value - lon.value, name: '纽约伦敦金价差额' };
+    return { code: 'CALC_NY_LON_DIFF', value: ny.value - lon.value, name: '纽伦差' };
   }
   return null;
 }
@@ -149,7 +149,7 @@ function calcNY_LON_DIFF_PCT(prices) {
   const lon = prices.find(p => p.code === 'hf_XAU');
   if (ny && lon && lon.value !== 0) {
     const pct = ((ny.value - lon.value) / lon.value) * 100;
-    return { code: 'CALC_NY_LON_DIFF_PCT', value: pct, name: '纽约伦敦金价差额(%)' };
+    return { code: 'CALC_NY_LON_DIFF_PCT', value: pct, name: '纽伦比' };
   }
   return null;
 }
