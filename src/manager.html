@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GoldPrice</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="manager.css" />
+  </head>
+
+  <body data-theme="light" data-theme-color="blue">
+    <div class="app">
+      <!-- ===== Sidebar ===== -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-logo">GOLD-PRICE</div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-view="prices">价格选择</button>
+          <button class="nav-item" data-view="store" data-store-view="manage">仓库管理</button>
+          <button class="nav-item" data-view="bubble-style">气泡设置</button>
+          <button class="nav-item" data-view="settings">应用设置</button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="bubble-preview" id="bubble-preview">
+            <div class="bp-header">
+              <span class="bp-title">气泡预览</span>
+              <span class="bp-mode" id="bp-mode">正常</span>
+            </div>
+            <!-- Preview content will be dynamically generated -->
+          </div>
+
+
+          <div class="sidebar-copy">© 2025 Lucas Lee</div>
+        </div>
+      </aside>
+
+      <!-- ===== Main Area ===== -->
+      <div class="main">
+        <!-- Topbar -->
+        <header class="topbar">
+          <div class="topbar-left">
+            <span class="top-title" id="page-title">价格选择</span>
+          </div>
+          <div class="topbar-right">
+            <div class="status-indicator">
+              <span id="status-dot" class="status-dot"></span>
+            </div>
+            <button id="refresh-btn" class="btn btn-primary btn-small">刷新数据</button>
+          </div>
+        </header>
+
+        <!-- Content Area -->
+        <main class="content">
+          <!-- ===== Price Selection View ===== -->
+          <section id="view-prices" class="view active">
+            <div class="card">
+              <div class="card-header">
+                <h2>实时金价</h2>
+                <div class="card-header-right">
+                  <span class="badge badge-primary">
+                    已选 <span id="selected-count">0</span> / <span id="rows-limit">2</span>
+                  </span>
+                  <button id="deselect-all-btn" class="btn btn-secondary btn-small">清空选择</button>
+                </div>
+              </div>
+
+              <div id="price-select-list" class="price-select-list">
+                <!-- Dynamically generated price list -->
+              </div>
+            </div>
+          </section>
+
+          <!-- ===== Warehouse Management View ===== -->
+          <section id="view-store" class="view">
+            <div class="card">
+              <div class="card-header">
+                <div id="pnl-summary" class="pnl-summary pnl-summary-cards"></div>
+              </div>
+
+              <div class="store-layout">
+                <div class="store-list">
+                  <ul id="warehouse-list">
+                    <!-- Dynamically generated warehouse list -->
+                  </ul>
+                </div>
+                <div class="store-detail" id="warehouse-detail">
+                  <div class="empty-state">
+                    <div class="empty-state-icon">🏦</div>
+                    <div class="empty-state-text">选择或新建仓库</div>
+                    <div class="empty-state-hint">点击左侧列表查看仓库详情</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ===== Bubble Style View ===== -->
+          <section id="view-bubble-style" class="view">
+            <div class="card">
+
+              <div class="style-panel">
+                <h3 class="section-title">外观设置</h3>
+
+                <div class="form-row">
+                  <label>主题配色</label>
+                  <select id="theme-color-select">
+                    <option value="blue">深蓝主题</option>
+                    <option value="purple">紫罗兰主题</option>
+                    <option value="green">翠绿主题</option>
+                  </select>
+                </div>
+
+                <div class="form-row">
+                  <label>字体大小 <span id="font-size-value">12</span>px</label>
+                  <input id="font-size-bubble" type="range" min="10" max="18" value="12" step="1" style="-webkit-app-region: no-drag; pointer-events: auto; user-select: none;" />
+                </div>
+
+                <div class="form-row">
+                  <label>透明度 <span id="opacity-value">100</span>%</label>
+                  <input id="bubble-opacity" type="range" min="70" max="100" value="100" step="5" style="-webkit-app-region: no-drag; pointer-events: auto; user-select: none;" />
+                </div>
+
+                <div class="form-row">
+                  <label>最多显示行数 <span id="bubble-rows-label">2</span></label>
+                  <input id="bubble-rows" type="range" min="1" max="8" value="2" step="1" style="-webkit-app-region: no-drag; pointer-events: auto; user-select: none;" />
+                </div>
+
+                <div class="switch-row">
+                  <span class="switch-label">摸鱼模式（半透明背景）</span>
+                  <label class="switch">
+                    <input type="checkbox" id="bubble-stealth" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <div class="switch-row">
+                  <span class="switch-label">0存在感模式（仅数字+边框）</span>
+                  <label class="switch">
+                    <input type="checkbox" id="bubble-minimal" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+
+                <div class="switch-row">
+                  <span class="switch-label">气泡显示仓库盈亏</span>
+                  <label class="switch">
+                    <input type="checkbox" id="show-pnl" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <div id="pnl-warehouse-select" style="display: none; margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
+                  <p class="text-secondary" style="font-size: 12px; margin-bottom: 8px;">
+                    选择要显示的仓库盈亏（最多3个）
+                  </p>
+                  <div style="margin-bottom: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                      <input type="checkbox" id="show-total-pnl" value="__total__" style="width: 16px; height: 16px; accent-color: var(--accent-primary); -webkit-app-region: no-drag; user-select: text; pointer-events: auto;" />
+                      <span style="font-size: 13px; color: var(--text-primary);">总仓营收</span>
+                    </label>
+                  </div>
+                  <div id="warehouse-pnl-list" style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- 动态生成仓库列表 -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ===== Settings View ===== -->
+          <section id="view-settings" class="view">
+            <div class="card">
+
+              <div class="style-panel">
+                <h3 class="section-title">常规设置</h3>
+
+                <div class="switch-row">
+                  <span class="switch-label">主题模式</span>
+                  <div class="theme-button-container">
+                    <div class="theme-components" id="theme-toggle">
+                      <div class="theme-main-button">
+                        <div class="theme-moon"></div>
+                        <div class="theme-moon"></div>
+                        <div class="theme-moon"></div>
+                      </div>
+                      <div class="theme-daytime-background"></div>
+                      <div class="theme-daytime-background"></div>
+                      <div class="theme-daytime-background"></div>
+                      <div class="theme-cloud">
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                      </div>
+                      <div class="theme-cloud-light">
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                        <div class="theme-cloud-son"></div>
+                      </div>
+                      <div class="theme-stars">
+                        <div class="theme-star big">
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                        </div>
+                        <div class="theme-star big">
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                        </div>
+                        <div class="theme-star medium">
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                        </div>
+                        <div class="theme-star medium">
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                        </div>
+                        <div class="theme-star small">
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                        </div>
+                        <div class="theme-star small">
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                          <div class="theme-star-son"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="switch-row">
+                  <span class="switch-label">开机自动启动</span>
+                  <label class="switch">
+                    <input type="checkbox" id="auto-start" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <div class="switch-row">
+                  <span class="switch-label">启动时显示管理界面</span>
+                  <label class="switch">
+                    <input type="checkbox" id="show-on-start" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+              <div class="form-row">
+                <label>数据更新间隔（秒）</label>
+                <input id="refresh-interval" type="number" min="1" max="60" value="2" />
+              </div>
+            </div>
+
+            <div class="style-panel">
+              <h3 class="section-title">数据备份</h3>
+              <p class="text-secondary" style="font-size: 12px; margin-bottom: 12px; line-height: 1.6;">
+                导出配置文件包含所有设置和仓库数据，可用于备份或迁移到其他设备。
+              </p>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button id="export-data-btn" class="btn btn-secondary">导出配置</button>
+                <button id="import-data-btn" class="btn btn-secondary">导入配置</button>
+                <button id="reset-data-btn" class="btn btn-secondary">重置所有数据</button>
+              </div>
+            </div>
+
+            <div class="style-panel">
+              <h3 class="section-title">危险操作</h3>
+              <p class="text-secondary" style="font-size: 12px; margin-bottom: 12px; line-height: 1.6; color: var(--accent-red);">
+                ⚠️ 此操作将清除所有数据并退出应用，请谨慎操作！
+              </p>
+              <button id="clear-and-quit-btn" class="btn" style="background: var(--accent-red); color: white;">清除全部数据并退出</button>
+            </div>
+
+            <div class="style-panel">
+              <h3 class="section-title">关于</h3>
+              <p class="text-secondary" style="line-height: 1.6;">
+                <strong>GoldPrice v1.0.0</strong><br />
+                实时黄金价格监控工具<br />
+                © 2025 Lucas Lee. All rights reserved.
+              </p>
+            </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="warehouse.js"></script>
+    <script src="manager.js"></script>
+  </body>
+</html>

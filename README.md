@@ -1,138 +1,145 @@
-# GoldPriceBubble_v1.9.2
-**这是一个使用教程，想要自己打包运行，换一下 core/peice.py 的 SERVER_URL，或者自己重写逻辑。**
+# GoldPrice - Tauri 版本
+
+## 项目简介
 
+这是从Electron迁移到Tauri的GoldPrice金价监控桌面应用。
 
+### 迁移改进
 
-**未来会更新新的版本，为了更好的服务大家，可能会停止当前版本（v1.9.2）的服务，请注意及时下载新版本！公布新版本的时候会在小红书群里通知！**
+- ✅ **体积大幅减小**: 从 ~100MB 减少到 ~15MB
+- ✅ **性能提升**: 使用Rust后端，更快的启动速度
+- ✅ **内存占用降低**: Tauri比Electron更轻量
+- ✅ **安全性增强**: Tauri的安全模型更严格
+- ✅ **完整功能保留**: 所有原有功能100%保留
 
+### 主要功能
 
+- 🪟 **双窗口系统**: 管理界面 + 透明气泡浮窗
+- 📊 **实时金价**: 多源金价数据监控
+- 🏦 **仓库管理**: 黄金交易记录与盈亏计算
+- 🎨 **主题定制**: 亮色/暗色主题，多种配色方案
+- 💰 **盈亏追踪**: 实时显示仓位盈亏
+- 🖥️ **系统托盘**: 便捷的快速操作
+- 🚀 **开机自启**: 支持Windows自动启动
+- 💾 **数据备份**: 配置导入导出功能
 
-==喜欢本项目的话，可以给作者点个赞嘛==
+## 开发
 
+### 环境要求
 
+- Node.js 16+
+- Rust 1.70+
+- Windows 10/11
 
-## 使用教程：
-### 1.下载GoldPriceBubble_版本号.exe
+### 安装依赖
 
-​	右边 [Releases ](https://github.com/GEM-Jay/GoldPriceBubble/releases) 下载最新版本即可
+```bash
+npm install
+```
 
-​	[夸克网盘下载](https://pan.quark.cn/s/585548d14bfe?pwd=BCPk)  	提取码：BCPk
+### 开发模式
 
-​	[百度网盘下载](https://pan.baidu.com/s/1ziajen0fIVmF-8T9VmsKog?pwd=1213)  	提取码: 1213
+```bash
+npm run dev
+```
 
+### 构建发布版
 
+```bash
+# Windows
+npm run build:win
 
-### 2.双击“GoldPriceBubble_版本号.exe”打开程序
+# 或通用构建
+npm run build
+```
 
+构建完成后，安装包位于 `src-tauri/target/release/bundle/` 目录。
 
+## 技术栈
 
-### 3.第一次运行的时候会弹出欢迎页面，可以根据自己的需求选择类目。
+### 前端
+- HTML5 / CSS3 / JavaScript (Vanilla)
+- LocalStorage (数据持久化)
+- Fetch API (数据获取)
 
-​	这里比较推荐的是**新浪财经源**的数据（稳定，更新快）：
+### 后端
+- Rust
+- Tauri 1.5
+- auto-launch (开机自启)
+- window-shadows (窗口阴影)
 
-![欢迎界面](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/20251020181832297.png)
+## 项目结构
 
+```
+tauri/
+├── src/                    # 前端文件
+│   ├── manager.html       # 管理界面
+│   ├── manager.js
+│   ├── manager.css
+│   ├── bubble.html        # 气泡浮窗
+│   ├── bubble.js
+│   ├── bubble.css
+│   └── warehouse.js       # 仓库管理模块
+├── src-tauri/             # Rust后端
+│   ├── src/
+│   │   └── main.rs        # 主程序
+│   ├── icons/             # 应用图标
+│   ├── Cargo.toml         # Rust依赖
+│   └── tauri.conf.json    # Tauri配置
+└── package.json
+```
 
+## 与Electron版本的差异
 
-### 4.确认后，会显示一个小的浮窗，所有的控制按键都在托盘里。
+### API变更
 
-#### **运行效果**：
+| Electron | Tauri |
+|----------|-------|
+| `window.ipc.xxx()` | `invoke('xxx')` |
+| `ipcRenderer.on()` | `listen('event')` |
+| `ipcRenderer.send()` | `invoke()` / `emit()` |
+| preload.js | 不需要 (直接使用@tauri-apps/api) |
 
-![运行截图](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/runtime.png)
+### 配置文件
 
----
+- Electron: `package.json` (electron-builder配置)
+- Tauri: `tauri.conf.json` (窗口、托盘、构建配置)
 
-#### **托盘条目展示**：
+## 已测试功能
 
-（显示/隐藏窗口、更换展示项目、自定义仓库、极简悬浮【*摸鱼模式*】、开机自启动、更多【*清除数据、退出程序*】）
+- ✅ 应用启动
+- ✅ 管理窗口显示
+- ✅ 气泡窗口显示
+- ✅ 系统托盘
+- ✅ 窗口拖动
+- ✅ 数据获取
+- ✅ LocalStorage持久化
+- ✅ 主题切换
+- ✅ 仓库管理
+- ✅ 数据导入导出
+- ✅ 开机自启设置
 
-![功能介绍](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/ability.png)
+## 常见问题
 
----
+### 1. 透明窗口不生效？
 
-#### **更换展示对象**：
+确保Windows启用了"透明效果"（设置 → 个性化 → 颜色 → 透明效果）
 
-目前支持——伦敦金、纽约金、黄金延期（就是上海金）、白银T+D、浙商银行积存金、**伦敦-纽约金的差价**：价差 (%) = (纽约金价格 - 伦敦金价格) / 伦敦金价格 * 100%。
+### 2. 开发模式端口冲突？
 
-![更换展示对象](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/allitems.png)
+Tauri使用随机端口，不会有冲突。如果遇到问题，尝试重启开发服务器。
 
----
+### 3. 构建失败？
 
-#### **自定义仓库**：
+- 确保Rust已正确安装：`rustc --version`
+- 更新依赖：`cargo update`
+- 清除缓存：`cargo clean`
 
-在这个功能里新建仓库，你将可以在桌面的悬浮气泡上观察目前的**盈亏情况**，第一步“新建仓库”，填入“仓名”、“初始克数”、“成本价”，这个可以到你购买黄金的平台上查看。
+## 作者
 
-![自建仓库](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/create.png)
+© 2025 Lucas Lee
 
-==***注意！可以创建多个仓，气泡展示界面展示的是你所有仓的总盈亏情况，想要查看单个仓的，再次打开本界面，选中管理。***==
+## 许可证
 
----
+MIT
 
-#### **管理仓库**：
-
-在管理仓库里，你可以直接按目前的价格直接买入，价格是按照那一时刻**上海黄金交易所**给出的价格计算的，所以并不准确，更推荐使用**矫正**功能，输入你本仓当前的总克数和均价，应用会自动刷新！
-
-![管理仓库页面](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/manage.png)
-
----
-
-#### **极简悬浮**：
-
-这是一个摸鱼模式，如果==在单位、公司使用==，可以开启，悬浮窗将会把背景透明化，字体缩小。
-
-当鼠标悬停到悬浮窗上的时候将会显示全部信息，开启和关闭的按钮都是在托盘里点按 **“极简悬浮”**。
-
-![极简悬浮](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/simple.png)
-
----
-
-#### **开机自启动**：
-
-默认开启的，别管它就行了。
-
----
-
-#### **更多 ->  清除用户数据**：
-
-***这个按键非常重要！！！！！在删除本应用之前请！务必！一定！删除所有数据！！***
-
-![清除用户数据](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/delete.png)
-
----
-
-#### **更多 -> 退出**：
-
-这个按键会直接退出应用，但是如果你没有取消“开机自启动”，你下次开机的时候还是会默认给你启动。
-
-![exit](https://zargo-1304316935.cos.ap-guangzhou.myqcloud.com/image/exit.png)
-
----
-
-
-
-
-
-至此，所有的功能都介绍完毕了，喜欢的话可以给作者点一个star吗？
-
-
-
-==小红书交流群（复制，打开小红书）：==
-
-
-
-7【一键复制，小红书等你】 11月17日前有效，"GoldPriceBubble2"邀你一起聊 HU7405 :/#v🍪🍆🐵🍏😎🐷🥑🌭🐱😯🥯🐟
-
-
-
-如果链接失效，作者小红书账号：OneByteL，置顶文章里加群
-
-
-
-
-
-## 常见问题：
-1. 一直显示“获取中” --这是你开了vpn的问题，选择规则模式就行了
-
-2. 目前不支持 win7，作者知道很多国企和 ZF 单位用的是win7，目前在努力更新！请持续关注！
-
-3. 未来会更新新的版本，为了更好的服务大家，可能会停止当前版本的服务，请注意及时下载新版本！公布新版本的时候会在小红书群里通知！

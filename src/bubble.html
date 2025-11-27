@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GoldPrice 浮窗</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="bubble.css" />
+  </head>
+  <body data-theme="light" data-theme-color="blue">
+    <div class="bubble" id="bubble-root" data-opacity="1.0">
+      <div class="bubble-header" data-tauri-drag-region>
+        <span class="title">GOLDPRICE</span>
+        <span class="mode" id="bubble-mode"></span>
+      </div>
+      <div class="bubble-lines" id="bubble-lines">
+        <!-- Dynamically generated price lines -->
+      </div>
+    </div>
+    <script src="bubble.js"></script>
+  </body>
+</html>

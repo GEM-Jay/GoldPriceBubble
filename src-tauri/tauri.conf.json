@@ -1,0 +1,151 @@
+{
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devPath": "../src",
+    "distDir": "../src",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "GoldPrice",
+    "version": "2.0.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "window": {
+        "all": true,
+        "create": true,
+        "center": true,
+        "requestUserAttention": true,
+        "setResizable": true,
+        "setTitle": true,
+        "maximize": true,
+        "unmaximize": true,
+        "minimize": true,
+        "unminimize": true,
+        "show": true,
+        "hide": true,
+        "close": true,
+        "setDecorations": true,
+        "setAlwaysOnTop": true,
+        "setSize": true,
+        "setMinSize": true,
+        "setMaxSize": true,
+        "setPosition": true,
+        "setFullscreen": true,
+        "setFocus": true,
+        "setIcon": true,
+        "setSkipTaskbar": true,
+        "setCursorGrab": true,
+        "setCursorVisible": true,
+        "setCursorIcon": true,
+        "setCursorPosition": true,
+        "setIgnoreCursorEvents": true,
+        "startDragging": true,
+        "print": true
+      },
+      "path": {
+        "all": true
+      },
+      "fs": {
+        "all": true,
+        "scope": ["$APPDATA/*", "$APPDATA/**"]
+      },
+      "shell": {
+        "all": false,
+        "open": true
+      },
+      "http": {
+        "all": true,
+        "scope": ["http://123.207.22.15:8081/api/**"]
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "Finance",
+      "copyright": "© 2025 Lucas Lee. All rights reserved.",
+      "deb": {
+        "depends": []
+      },
+      "externalBin": [],
+      "icon": [
+        "icons/icon.ico",
+        "icons/icon.png"
+      ],
+      "identifier": "com.lucas.goldprice",
+      "longDescription": "Real-time gold price monitoring desktop application",
+      "macOS": {
+        "entitlements": null,
+        "exceptionDomain": "",
+        "frameworks": [],
+        "providerShortName": null,
+        "signingIdentity": null
+      },
+      "resources": [],
+      "shortDescription": "Gold price monitor",
+      "targets": ["nsis", "msi"],
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": "",
+        "wix": {
+          "language": "zh-CN"
+        },
+        "nsis": {
+          "template": null,
+          "license": null,
+          "installerIcon": "icons/icon.ico",
+          "installMode": "perMachine",
+          "languages": ["SimpChinese", "English"],
+          "displayLanguageSelector": false,
+          "compression": "lzma"
+        }
+      }
+    },
+    "security": {
+      "csp": null
+    },
+    "systemTray": {
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false,
+      "title": "GoldPrice"
+    },
+    "windows": [
+      {
+        "label": "manager",
+        "title": "GoldPrice 管理界面",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 1000,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "visible": false,
+        "center": true,
+        "url": "manager.html"
+      },
+      {
+        "label": "bubble",
+        "title": "GoldPrice Bubble",
+        "width": 240,
+        "height": 120,
+        "resizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": true,
+        "center": false,
+        "url": "bubble.html"
+      }
+    ]
+  }
+}
+
