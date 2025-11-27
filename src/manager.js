@@ -26,7 +26,7 @@ waitForTauri(() => {
 });
 
 // ---------- 配置 ----------
-const DEFAULT_API_URL = 'http://123.207.22.15:8081/api/latest/all';
+// DEFAULT_API_URL 从 config.js 中导入
 
 // 金价固定顺序
 const FIXED_ORDER = [

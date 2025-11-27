@@ -37,6 +37,20 @@
 npm install
 ```
 
+### 配置 API 地址
+
+首次开发前需要配置 API 地址：
+
+```bash
+# 复制配置文件模板
+cp src/config.example.js src/config.js
+
+# 编辑 src/config.js，修改为你的 API 地址
+# const DEFAULT_API_URL = 'http://your-api-server.com:8081/api/latest/all';
+```
+
+**注意**: `src/config.js` 文件已在 `.gitignore` 中忽略，不会被提交到 Git，以保护你的服务器地址隐私。
+
 ### 开发模式
 
 ```bash

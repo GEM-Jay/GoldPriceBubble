@@ -1,3 +1,25 @@
+# ------------------------
+# Tauri / Rust 构建文件
+# ------------------------
+src-tauri/target/
+src-tauri/WixTools/
+*.exe
+*.msi
+*.deb
+*.AppImage
+*.dmg
+
+# ------------------------
+# Node.js
+# ------------------------
+node_modules/
+package-lock.json
+*.log
+
+# ------------------------
+# 配置文件（包含敏感信息）
+# ------------------------
+src/config.js
 
 # ------------------------
 # Python缓存文件
@@ -9,7 +31,6 @@ __pycache__/
 *.so
 *.egg-info/
 .eggs/
-*.log
 *.tmp
 *.spec
 
