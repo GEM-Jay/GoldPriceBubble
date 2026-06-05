@@ -1,14 +1,16 @@
-// ========================================
 // 配置文件示例
 // 使用说明：
 // 1. 复制此文件为 config.js
-// 2. 修改 DEFAULT_API_URL 为你的实际 API 地址
-// ========================================
+// 2. 按你的部署环境填写下面的服务地址
 
-const DEFAULT_API_URL = 'http://your-api-server.com:8081/api/latest/all';
+// 应用主服务地址（例如 https://api.example.com）
+const SERVER_URL = 'https://api.example.com';
 
-// 导出配置
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { DEFAULT_API_URL };
-}
+// 图表与历史数据 CDN 地址
+const COS_CDN = 'https://cdn.example.com';
 
+// 安装包下载基础地址
+const COS_APK = 'https://downloads.example.com';
+
+// 工单服务地址
+const TICKET_SERVER_URL = 'https://ticket.example.com';
