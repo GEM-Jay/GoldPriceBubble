@@ -72,6 +72,17 @@ struct TaskbarGeometryInfo {
     height: i32,
 }
 
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Default)]
+struct TaskbarHostInfo {
+    hwnd: windows::Win32::Foundation::HWND,
+    edge: &'static str,
+    rect: windows::Win32::Foundation::RECT,
+    start_rect: windows::Win32::Foundation::RECT,
+    notify_rect: windows::Win32::Foundation::RECT,
+    is_windows11: bool,
+}
+
 // ========== 状态管理 ==========
 struct AppState {
     bubble_visible: Mutex<bool>,
@@ -168,23 +179,23 @@ fn taskbar_text_color(color: &str, theme: &str) -> u32 {
 }
 
 #[cfg(target_os = "windows")]
-fn taskbar_edge_from_rect(rect: &windows::Win32::Foundation::RECT) -> String {
+fn taskbar_edge_from_rect(rect: &windows::Win32::Foundation::RECT) -> &'static str {
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
     if width >= height {
-        if rect.top <= 0 { "top".to_string() } else { "bottom".to_string() }
+        if rect.top <= 0 { "top" } else { "bottom" }
     } else if rect.left <= 0 {
-        "left".to_string()
+        "left"
     } else {
-        "right".to_string()
+        "right"
     }
 }
 
 #[cfg(target_os = "windows")]
-fn detect_taskbar_geometry() -> Option<TaskbarGeometryInfo> {
+fn detect_taskbar_host() -> Option<TaskbarHostInfo> {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::RECT;
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowRect};
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, FindWindowW, GetWindowRect};
 
     let hwnd = unsafe { FindWindowW(PCWSTR(encode_wide("Shell_TrayWnd").as_ptr()), PCWSTR::null()) };
     if hwnd.0 == 0 {
@@ -194,16 +205,107 @@ fn detect_taskbar_geometry() -> Option<TaskbarGeometryInfo> {
     if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
         return None;
     }
-    let edge = taskbar_edge_from_rect(&rect);
-    Some(TaskbarGeometryInfo {
-        edge,
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-        width: rect.right - rect.left,
-        height: rect.bottom - rect.top,
+
+    let mut start_rect = RECT::default();
+    let mut notify_rect = RECT::default();
+    let start_hwnd = unsafe { FindWindowExW(hwnd, None, PCWSTR(encode_wide("Start").as_ptr()), PCWSTR::null()) };
+    let notify_hwnd = unsafe { FindWindowExW(hwnd, None, PCWSTR(encode_wide("TrayNotifyWnd").as_ptr()), PCWSTR::null()) };
+    if start_hwnd.0 != 0 {
+        let _ = unsafe { GetWindowRect(start_hwnd, &mut start_rect) };
+    }
+    if notify_hwnd.0 != 0 {
+        let _ = unsafe { GetWindowRect(notify_hwnd, &mut notify_rect) };
+    }
+    let is_windows11 = unsafe {
+        FindWindowExW(
+            hwnd,
+            None,
+            PCWSTR(encode_wide("Windows.UI.Composition.DesktopWindowContentBridge").as_ptr()),
+            PCWSTR::null(),
+        )
+        .0 != 0
+    };
+
+    Some(TaskbarHostInfo {
+        hwnd,
+        edge: taskbar_edge_from_rect(&rect),
+        rect,
+        start_rect,
+        notify_rect,
+        is_windows11,
     })
+}
+
+#[cfg(target_os = "windows")]
+fn detect_taskbar_geometry() -> Option<TaskbarGeometryInfo> {
+    let host = detect_taskbar_host()?;
+    Some(TaskbarGeometryInfo {
+        edge: host.edge.to_string(),
+        left: host.rect.left,
+        top: host.rect.top,
+        right: host.rect.right,
+        bottom: host.rect.bottom,
+        width: host.rect.right - host.rect.left,
+        height: host.rect.bottom - host.rect.top,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn rect_relative_to(
+    rect: &windows::Win32::Foundation::RECT,
+    host: &windows::Win32::Foundation::RECT,
+) -> windows::Win32::Foundation::RECT {
+    windows::Win32::Foundation::RECT {
+        left: rect.left - host.left,
+        top: rect.top - host.top,
+        right: rect.right - host.left,
+        bottom: rect.bottom - host.top,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn taskbar_child_position(host: &TaskbarHostInfo, width: i32, height: i32) -> (i32, i32) {
+    let host_width = host.rect.right - host.rect.left;
+    let host_height = host.rect.bottom - host.rect.top;
+    let notify = rect_relative_to(&host.notify_rect, &host.rect);
+    let start = rect_relative_to(&host.start_rect, &host.rect);
+    let vertical_center = ((host_height - height) / 2).max(0);
+
+    let (mut x, mut y) = match host.edge {
+        "top" => {
+            let target_x = if notify.right > notify.left {
+                notify.left - width + 2
+            } else {
+                host_width - width - 12
+            };
+            (target_x, vertical_center)
+        }
+        "left" => (((host_width - width) / 2).max(0), host_height - height - 12),
+        "right" => (((host_width - width) / 2).max(0), host_height - height - 12),
+        _ => {
+            let target_x = if notify.right > notify.left {
+                notify.left - width + 2
+            } else {
+                host_width - width - 12
+            };
+            let target_y = if host.is_windows11 && start.bottom > start.top {
+                ((start.bottom - start.top - height) / 2).max(0) + (host_height - (start.bottom - start.top))
+            } else {
+                vertical_center
+            };
+            (target_x, target_y)
+        }
+    };
+
+    if host.is_windows11 && matches!(host.edge, "top" | "bottom") && start.right > start.left && notify.right > notify.left {
+        let left_bound = (start.right + 8).max(0);
+        let right_bound = (notify.left - width - 4).max(left_bound);
+        x = x.clamp(left_bound, right_bound);
+    } else {
+        x = x.clamp(0, (host_width - width).max(0));
+    }
+    y = y.clamp(0, (host_height - height).max(0));
+    (x, y)
 }
 
 #[cfg(target_os = "windows")]
@@ -429,8 +531,8 @@ fn ensure_taskbar_window() -> Result<windows::Win32::Foundation::HWND, String> {
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DispatchMessageW, GetMessageW, RegisterClassW,
-        TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WNDCLASSW, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     };
 
     let hwnd = HWND(TASKBAR_WINDOW_HWND.load(Ordering::SeqCst));
@@ -452,10 +554,10 @@ fn ensure_taskbar_window() -> Result<windows::Win32::Foundation::HWND, String> {
                 let _ = RegisterClassW(&wc);
                 let title = encode_wide("GoldPriceTaskbar");
                 let hwnd = CreateWindowExW(
-                    WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0 | WS_EX_NOACTIVATE.0),
+                    WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0),
                     PCWSTR(class_name.as_ptr()),
                     PCWSTR(title.as_ptr()),
-                    WS_POPUP,
+                    WS_CHILD | WS_CLIPSIBLINGS,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     80,
@@ -491,33 +593,37 @@ fn position_taskbar_window(
     hwnd: windows::Win32::Foundation::HWND,
     payload: &TaskbarDisplayPayload,
 ) -> Result<TaskbarGeometryInfo, String> {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_SHOWWINDOW};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetParent, MoveWindow, SetParent, SetWindowLongPtrW, ShowWindow, GWL_STYLE, SW_SHOWNOACTIVATE,
+        WS_CHILD, WS_CLIPSIBLINGS, WS_VISIBLE,
+    };
 
-    let geometry = detect_taskbar_geometry().ok_or("failed to detect taskbar geometry")?;
+    let host = detect_taskbar_host().ok_or("failed to detect taskbar host")?;
+    let geometry = TaskbarGeometryInfo {
+        edge: host.edge.to_string(),
+        left: host.rect.left,
+        top: host.rect.top,
+        right: host.rect.right,
+        bottom: host.rect.bottom,
+        width: host.rect.right - host.rect.left,
+        height: host.rect.bottom - host.rect.top,
+    };
     let (_, width, height, _) =
         taskbar_window_layout(hwnd, payload, &geometry).ok_or("failed to compute taskbar layout")?;
-
-    let (mut x, mut y) = match geometry.edge.as_str() {
-        "top" => (geometry.right - width - 12, geometry.bottom + 6),
-        "left" => (geometry.right + 6, geometry.bottom - height - 12),
-        "right" => (geometry.left - width - 6, geometry.bottom - height - 12),
-        _ => (geometry.right - width - 12, geometry.top - height - 6),
-    };
-    x = x.max(0);
-    y = y.max(0);
-
+    let parent = unsafe { GetParent(hwnd) };
+    if parent != host.hwnd {
+        unsafe {
+            SetParent(hwnd, host.hwnd);
+        }
+    }
+    let style = (WS_CHILD.0 | WS_VISIBLE.0 | WS_CLIPSIBLINGS.0) as isize;
     unsafe {
-        SetWindowPos(
-            hwnd,
-            HWND(-1),
-            x,
-            y,
-            width,
-            height,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        )
-        .map_err(|e| e.to_string())?;
+        let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+    }
+    let (x, y) = taskbar_child_position(&host, width, height);
+    unsafe { MoveWindow(hwnd, x, y, width, height, true).map_err(|e| e.to_string())?; }
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     }
     Ok(geometry)
 }
