@@ -29,6 +29,8 @@ static TASKBAR_WINDOW_VISIBLE: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 const TASKBAR_WINDOW_CLASS: &str = "GoldPriceTaskbarWindow";
 #[cfg(target_os = "windows")]
+const TASKBAR_WINDOW_TIMER_ID: usize = 0x4750;
+#[cfg(target_os = "windows")]
 const TASKBAR_WINDOW_PADDING_X: i32 = 10;
 #[cfg(target_os = "windows")]
 const TASKBAR_WINDOW_PADDING_Y: i32 = 6;
@@ -452,6 +454,12 @@ fn taskbar_window_layout(
 }
 
 #[cfg(target_os = "windows")]
+fn reflow_taskbar_window(hwnd: windows::Win32::Foundation::HWND) {
+    let payload = taskbar_payload_store().lock().unwrap().clone();
+    let _ = position_taskbar_window(hwnd, &payload);
+}
+
+#[cfg(target_os = "windows")]
 unsafe extern "system" fn taskbar_window_proc(
     hwnd: windows::Win32::Foundation::HWND,
     msg: u32,
@@ -465,10 +473,16 @@ unsafe extern "system" fn taskbar_window_proc(
         DEFAULT_CHARSET, DEFAULT_PITCH, FW_MEDIUM, LOGPIXELSY, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FF_DONTCARE, PAINTSTRUCT,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{WM_ERASEBKGND, WM_PAINT};
+    use windows::Win32::UI::WindowsAndMessaging::{WM_ERASEBKGND, WM_PAINT, WM_TIMER};
 
     match msg {
         WM_ERASEBKGND => return LRESULT(1),
+        WM_TIMER => {
+            if wparam.0 == TASKBAR_WINDOW_TIMER_ID {
+                reflow_taskbar_window(hwnd);
+                return LRESULT(0);
+            }
+        }
         WM_PAINT => {
             let payload = taskbar_payload_store().lock().unwrap().clone();
             let geometry = detect_taskbar_geometry().unwrap_or_default();
@@ -531,8 +545,8 @@ fn ensure_taskbar_window() -> Result<windows::Win32::Foundation::HWND, String> {
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DispatchMessageW, GetMessageW, RegisterClassW,
-        TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WNDCLASSW, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW, WS_POPUP,
     };
 
     let hwnd = HWND(TASKBAR_WINDOW_HWND.load(Ordering::SeqCst));
@@ -557,7 +571,7 @@ fn ensure_taskbar_window() -> Result<windows::Win32::Foundation::HWND, String> {
                     WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0),
                     PCWSTR(class_name.as_ptr()),
                     PCWSTR(title.as_ptr()),
-                    WS_CHILD | WS_CLIPSIBLINGS,
+                    WS_POPUP,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     80,
@@ -594,8 +608,7 @@ fn position_taskbar_window(
     payload: &TaskbarDisplayPayload,
 ) -> Result<TaskbarGeometryInfo, String> {
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetParent, MoveWindow, SetParent, SetWindowLongPtrW, ShowWindow, GWL_STYLE, SW_SHOWNOACTIVATE,
-        WS_CHILD, WS_CLIPSIBLINGS, WS_VISIBLE,
+        GetParent, MoveWindow, SetParent, SetTimer, ShowWindow, SW_SHOWNOACTIVATE,
     };
 
     let host = detect_taskbar_host().ok_or("failed to detect taskbar host")?;
@@ -610,20 +623,23 @@ fn position_taskbar_window(
     };
     let (_, width, height, _) =
         taskbar_window_layout(hwnd, payload, &geometry).ok_or("failed to compute taskbar layout")?;
+    let (x, y) = taskbar_child_position(&host, width, height);
     let parent = unsafe { GetParent(hwnd) };
     if parent != host.hwnd {
-        unsafe {
-            SetParent(hwnd, host.hwnd);
+        let new_parent = unsafe { SetParent(hwnd, host.hwnd) };
+        if new_parent.0 == 0 {
+            let (screen_x, screen_y) = (host.rect.left + x, host.rect.top + y);
+            unsafe {
+                MoveWindow(hwnd, screen_x, screen_y, width, height, true).map_err(|e| e.to_string())?;
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            return Ok(geometry);
         }
     }
-    let style = (WS_CHILD.0 | WS_VISIBLE.0 | WS_CLIPSIBLINGS.0) as isize;
-    unsafe {
-        let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, style);
-    }
-    let (x, y) = taskbar_child_position(&host, width, height);
     unsafe { MoveWindow(hwnd, x, y, width, height, true).map_err(|e| e.to_string())?; }
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        let _ = SetTimer(hwnd, TASKBAR_WINDOW_TIMER_ID, 1000, None);
     }
     Ok(geometry)
 }
@@ -1022,11 +1038,12 @@ async fn hide_taskbar_window(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+        use windows::Win32::UI::WindowsAndMessaging::{KillTimer, ShowWindow, SW_HIDE};
 
         let raw = TASKBAR_WINDOW_HWND.load(Ordering::SeqCst);
         if raw != 0 {
             unsafe {
+                let _ = KillTimer(HWND(raw), TASKBAR_WINDOW_TIMER_ID);
                 let _ = ShowWindow(HWND(raw), SW_HIDE);
             }
         }
