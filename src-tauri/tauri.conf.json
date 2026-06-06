@@ -8,11 +8,14 @@
   },
   "package": {
     "productName": "GoldPrice",
-    "version": "2.0.1"
+    "version": "2.2.28"
   },
   "tauri": {
     "allowlist": {
       "all": false,
+      "dialog": {
+        "all": true
+      },
       "window": {
         "all": true,
         "create": true,
@@ -58,7 +61,7 @@
       },
       "http": {
         "all": true,
-        "scope": ["http://123.207.22.15:8081/api/**"]
+        "scope": ["http://**", "https://**"]
       }
     },
     "bundle": {
@@ -89,6 +92,11 @@
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
         "timestampUrl": "",
+        "webviewInstallMode": {
+          "type": "downloadBootstrapper",
+          "silent": true
+        },
+        "allowDowngrades": true,
         "wix": {
           "language": "zh-CN"
         },
@@ -118,11 +126,11 @@
         "title": "GoldPrice 管理界面",
         "width": 1200,
         "height": 800,
-        "minWidth": 1000,
+        "minWidth": 900,
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true,
+        "decorations": false,
         "transparent": false,
         "alwaysOnTop": false,
         "skipTaskbar": false,
@@ -132,7 +140,7 @@
       },
       {
         "label": "bubble",
-        "title": "GoldPrice Bubble",
+        "title": ".",
         "width": 240,
         "height": 120,
         "resizable": false,
@@ -141,11 +149,10 @@
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "visible": true,
+        "visible": false,
         "center": false,
         "url": "bubble.html"
       }
     ]
   }
 }
-

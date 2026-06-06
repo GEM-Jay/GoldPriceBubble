@@ -4,6 +4,36 @@
 
 let PRICES = [];
 let currentWarehouseId = null;
+const HISTORY_VERSION = 2;
+const MAX_HISTORY_ITEMS = 300;
+
+function _trimWarehouseHistory(warehouse) {
+  const history = Array.isArray(warehouse.history) ? warehouse.history : [];
+  if (history.length <= MAX_HISTORY_ITEMS) {
+    return {
+      ...warehouse,
+      historyVersion: HISTORY_VERSION,
+      history,
+    };
+  }
+
+  const trimmed = history.slice(-MAX_HISTORY_ITEMS);
+  const removed = history.slice(0, history.length - trimmed.length);
+  const archiveSummary = {
+    trimmedCount: removed.length,
+    firstTimestamp: removed[0]?.timestamp || null,
+    lastTimestamp: removed[removed.length - 1]?.timestamp || null,
+    trimmedAt: Date.now(),
+  };
+
+  return {
+    ...warehouse,
+    historyVersion: HISTORY_VERSION,
+    historyTrimmedAt: archiveSummary.trimmedAt,
+    historyArchiveSummary: archiveSummary,
+    history: trimmed,
+  };
+}
 
 // ============================================
 // 数据存储
@@ -12,17 +42,16 @@ function loadWarehouses() {
   try {
     const raw = localStorage.getItem('warehouses');
     return raw ? JSON.parse(raw) : [];
-  } catch (err) {
-    console.error('加载仓库失败:', err);
+  } catch (_) {
     return [];
   }
 }
 
 function saveWarehouses(list) {
   try {
-    localStorage.setItem('warehouses', JSON.stringify(list));
-  } catch (err) {
-    console.error('保存仓库失败:', err);
+    const normalized = Array.isArray(list) ? list.map(_trimWarehouseHistory) : [];
+    localStorage.setItem('warehouses', JSON.stringify(normalized));
+  } catch (_) {
   }
 }
 
@@ -30,14 +59,11 @@ function saveWarehouses(list) {
 // 工具函数
 // ============================================
 function getCurrency(code) {
+  if (typeof DataSource !== 'undefined') {
+    return DataSource.getCurrency(code);
+  }
   if (code === 'CALC_NY_LON_DIFF_PCT') return '%';
-  const map = {
-    gds_AUTD: '￥',
-    'SGE-Au(T+D)': '￥',
-    '21001001000001': '￥',
-    'CZB-JCJ': '￥',
-  };
-  return map[code] || '$';
+  return '$';
 }
 
 function fmt(v, decimals = 2) {
@@ -59,13 +85,44 @@ function formatDateTime(timestamp) {
 
 // 获取显示名称
 function getDisplayName(code) {
-  const nameMap = {
-    'gds_AUTD': '民生银行积存金',
-    'SGE-Au(T+D)': '上海金',
-    '21001001000001': '民生银行积存金',
-    'CZB-JCJ': '浙江商业银行积存金'
-  };
-  return nameMap[code] || code;
+  if (typeof DataSource !== 'undefined') {
+    const mapped = DataSource.getDisplayName(code, '');
+    if (mapped && mapped !== code) return mapped;
+  }
+  const p = PRICES.find(p => p.code === code);
+  if (p && p.name) return p.name;
+  return code;
+}
+
+function getRefPriceItems() {
+  const items = [];
+  const seen = new Set();
+
+  if (typeof DataSource !== 'undefined') {
+    DataSource.getAllItems()
+      .filter(item => getCurrency(item.code) === '¥')
+      .forEach((item) => {
+        if (seen.has(item.code)) return;
+        seen.add(item.code);
+        items.push({
+          code: item.code,
+          name: getDisplayName(item.code),
+        });
+      });
+  }
+
+  PRICES
+    .filter(p => getCurrency(p.code) === '¥')
+    .forEach((p) => {
+      if (seen.has(p.code)) return;
+      seen.add(p.code);
+      items.push({
+        code: p.code,
+        name: getDisplayName(p.code),
+      });
+    });
+
+  return items;
 }
 
 // ============================================
@@ -230,9 +287,9 @@ function renderWarehouseDetail(id) {
           <div class="form-row">
             <label>价格参考</label>
             <select id="refprice-select-${id}" onchange="warehouseModule.changeRefPrice('${id}')">
-              ${PRICES.filter(p => getCurrency(p.code) === '￥').map(p => `
-                <option value="${p.code}" ${p.code === warehouse.refPrice ? 'selected' : ''}>
-                  ${getDisplayName(p.code)}
+              ${getRefPriceItems().map(item => `
+                <option value="${item.code}" ${item.code === warehouse.refPrice ? 'selected' : ''}>
+                  ${item.name}
                 </option>
               `).join('')}
             </select>
@@ -333,10 +390,19 @@ function renderWarehouseDetail(id) {
 // ============================================
 // 显示新建仓库表单
 // ============================================
-function showNewWarehouseForm() {
-  // 只显示人民币结算的价格
-  const rmbPrices = PRICES.filter(p => getCurrency(p.code) === '￥');
+function _buildRefPriceSelect(selectedCode) {
+  const rmbPrices = getRefPriceItems();
+  if (rmbPrices.length === 0) {
+    return `<span class="text-secondary" style="font-size:12px;">数据抓取中，请稍候…</span>`;
+  }
+  return `<select id="new-warehouse-ref">
+    ${rmbPrices.map(item => `
+      <option value="${item.code}" ${item.code === selectedCode ? 'selected' : ''}>${item.name}</option>
+    `).join('')}
+  </select>`;
+}
 
+function showNewWarehouseForm() {
   const detail = document.getElementById('warehouse-detail');
   detail.innerHTML = `
     <div class="warehouse-detail-container">
@@ -352,13 +418,9 @@ function showNewWarehouseForm() {
           <label>仓库名称</label>
           <input type="text" id="new-warehouse-name" placeholder="例如：我的黄金仓库">
         </div>
-        <div class="form-row">
+        <div class="form-row" id="new-warehouse-ref-row">
           <label>价格参考对象</label>
-          <select id="new-warehouse-ref">
-            ${rmbPrices.map(p => `
-              <option value="${p.code}">${getDisplayName(p.code)}</option>
-            `).join('')}
-          </select>
+          ${_buildRefPriceSelect('')}
         </div>
         <div class="form-row">
           <label>总克重（克）</label>
@@ -376,7 +438,24 @@ function showNewWarehouseForm() {
     </div>
   `;
 
-  // 聚焦到第一个输入框
+  // 数据未到时轮询，到了就自动填充 select
+  if (getRefPriceItems().length === 0) {
+    const _timer = setInterval(() => {
+      const refRow = document.getElementById('new-warehouse-ref-row');
+      if (!refRow) { clearInterval(_timer); return; } // 表单已关闭
+      const rmbPrices = getRefPriceItems();
+      if (rmbPrices.length > 0) {
+        const label = refRow.querySelector('label');
+        refRow.innerHTML = '';
+        if (label) refRow.appendChild(label);
+        const tmp = document.createElement('div');
+        tmp.innerHTML = _buildRefPriceSelect('');
+        refRow.appendChild(tmp.firstElementChild);
+        clearInterval(_timer);
+      }
+    }, 800);
+  }
+
   setTimeout(() => {
     document.getElementById('new-warehouse-name')?.focus();
   }, 100);
