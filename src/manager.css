@@ -1647,6 +1647,13 @@ select {
   min-width: 0;
 }
 
+.form-help-text {
+  margin: -2px 4px 10px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
 .switch {
   position: relative;
   display: inline-block;

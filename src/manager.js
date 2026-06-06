@@ -158,6 +158,7 @@ const state = {
   bubbleFontSize: 12,
   bubbleFontColor: 'black',
   bubbleOpacity: 100,
+  taskbarDisplayExperimental: false,
   showPnl: false,
   selectedPnlWarehouses: [],
   refreshInterval: 5000,
@@ -253,6 +254,7 @@ function _getBubbleConfigSummary() {
     showPnl: !!state.showPnl,
     bubbleStealth: !!state.bubbleStealth,
     bubbleMinimal: !!state.bubbleMinimal,
+    taskbarDisplayExperimental: !!state.taskbarDisplayExperimental,
     bubbleTheme: state.bubbleTheme,
     bubbleOpacity: state.bubbleOpacity,
   };
@@ -407,11 +409,70 @@ function loadState() {
     state.bubbleFontSize = parseInt(localStorage.getItem('bubbleFontSize') || '12');
     state.bubbleFontColor = localStorage.getItem('bubbleFontColor') || 'black';
     state.bubbleOpacity = parseInt(localStorage.getItem('bubbleOpacity') || '100');
+    state.taskbarDisplayExperimental = localStorage.getItem('taskbarDisplayExperimental') === 'true';
     state.showPnl = localStorage.getItem('showPnl') === 'true';
     state.selectedPnlWarehouses = JSON.parse(localStorage.getItem('pnl_selected_warehouses') || '[]');
     state.serverUrl = normalizeServerUrl(localStorage.getItem('serverUrl') || (typeof SERVER_URL !== 'undefined' ? SERVER_URL : ''));
     localStorage.setItem('serverUrl', state.serverUrl);
     _normalizeSelectedCodes();
+  } catch (_) {
+  }
+}
+
+function _buildTaskbarDisplayPayload() {
+  const selectedPrices = state.prices.filter(p => state.selectedCodes.includes(p.code));
+  const items = selectedPrices.map((price) => {
+    const displayName = getDisplayName(price.code, price.name);
+    const shortName = displayName.length > 4 ? displayName.substring(0, 4) : displayName;
+    return {
+      label: shortName,
+      value_text: fmt(price.value, 2),
+      unit: getCurrency(price.code),
+      trend: 'flat',
+    };
+  });
+  return {
+    items,
+    font_size: state.bubbleFontSize,
+    font_color: state.bubbleFontColor,
+    theme: state.bubbleTheme,
+    theme_color: state.bubbleThemeColor || 'blue',
+  };
+}
+
+async function _syncDisplayMode() {
+  if (!invoke) return;
+  try {
+    if (state.taskbarDisplayExperimental) {
+      await invoke('hide_bubble');
+      const payload = _buildTaskbarDisplayPayload();
+      if (payload.items.length > 0) {
+        await invoke('show_taskbar_window', { payload });
+      } else {
+        await invoke('hide_taskbar_window');
+      }
+      return;
+    }
+    await invoke('hide_taskbar_window');
+    if (state.selectedCodes.length > 0) {
+      await invoke('show_bubble');
+      await invoke('refresh_bubble');
+    } else {
+      await invoke('hide_bubble');
+    }
+  } catch (_) {
+  }
+}
+
+async function _syncTaskbarDisplayIfNeeded() {
+  if (!state.taskbarDisplayExperimental || !invoke) return;
+  try {
+    const payload = _buildTaskbarDisplayPayload();
+    if (payload.items.length > 0) {
+      await invoke('update_taskbar_window', { payload });
+    } else {
+      await invoke('hide_taskbar_window');
+    }
   } catch (_) {
   }
 }
@@ -427,6 +488,7 @@ async function saveState() {
     localStorage.setItem('bubbleFontSize', state.bubbleFontSize.toString());
     localStorage.setItem('bubbleFontColor', state.bubbleFontColor);
     localStorage.setItem('bubbleOpacity', state.bubbleOpacity.toString());
+    localStorage.setItem('taskbarDisplayExperimental', state.taskbarDisplayExperimental.toString());
     localStorage.setItem('showPnl', state.showPnl.toString());
     localStorage.setItem('pnl_selected_warehouses', JSON.stringify(state.selectedPnlWarehouses));
     localStorage.setItem('serverUrl', state.serverUrl);
@@ -449,6 +511,7 @@ async function saveState() {
       await invoke('notify_bubble', { message: 'config-update' });
     } catch (_) {
     }
+    await _syncDisplayMode();
   } catch (_) {
   }
 }
@@ -579,6 +642,7 @@ function _processPriceSnapshot(prices, rawMessage) {
   _setConnectionOnline(true, 'snapshot_received');
   updatePnlSummary();
   renderPreview();
+  _syncTaskbarDisplayIfNeeded();
 }
 
 function _processQueuedSsePayload() {
@@ -824,6 +888,7 @@ async function fetchPrices() {
       state.prices = partial;
       updatePriceValues(partial);
       _setConnectionOnline(true, 'manual_partial_prices');
+      _syncTaskbarDisplayIfNeeded();
     });
 
     if (prices.length === 0) {
@@ -866,6 +931,8 @@ async function fetchPrices() {
         window.warehouseModule.updateWarehouseRealTimeData();
       }
     }
+
+    _syncTaskbarDisplayIfNeeded();
 
     return prices;
   } catch (_) {
@@ -1103,7 +1170,9 @@ function togglePriceSelection(code) {
   renderPreview();
 
   const nowEmpty = state.selectedCodes.length === 0;
-  if (nowEmpty && !prevEmpty) {
+  if (state.taskbarDisplayExperimental) {
+    _syncTaskbarDisplayIfNeeded();
+  } else if (nowEmpty && !prevEmpty) {
     appLog('info', 'manager', 'hide_bubble_requested', 'bubble hide requested from price selection', {
       reason: 'selection_became_empty',
       selectedCodes: state.selectedCodes.slice(),
@@ -1166,11 +1235,15 @@ function setupPriceSelectionInteractions() {
 function deselectAll() {
   if (state.selectedCodes.length === 0) return;
   state.selectedCodes = [];
-  appLog('info', 'manager', 'hide_bubble_requested', 'bubble hide requested from deselect all', {
-    reason: 'deselect_all',
-    selectedCodes: [],
-  });
-  invoke('hide_bubble').catch(() => {});
+  if (!state.taskbarDisplayExperimental) {
+    appLog('info', 'manager', 'hide_bubble_requested', 'bubble hide requested from deselect all', {
+      reason: 'deselect_all',
+      selectedCodes: [],
+    });
+    invoke('hide_bubble').catch(() => {});
+  } else {
+    invoke('hide_taskbar_window').catch(() => {});
+  }
   saveState();
   syncCardsUI();
   renderPreview();
@@ -1319,6 +1392,12 @@ function setupBubbleSettings() {
 
   // 隐身模式（摸鱼模式）
   const stealthCheckbox = document.getElementById('bubble-stealth');
+  const minimalCheckbox = document.getElementById('bubble-minimal');
+  const taskbarExperimentalCheckbox = document.getElementById('taskbar-display-experimental');
+  function _syncDisplayModeInputs() {
+    if (stealthCheckbox) stealthCheckbox.disabled = !!state.taskbarDisplayExperimental;
+    if (minimalCheckbox) minimalCheckbox.disabled = !!state.taskbarDisplayExperimental;
+  }
   if (stealthCheckbox) {
     stealthCheckbox.checked = state.bubbleStealth;
     stealthCheckbox.addEventListener('change', (e) => {
@@ -1335,8 +1414,6 @@ function setupBubbleSettings() {
   }
 
   // 0存在感模式
-  const minimalCheckbox = document.getElementById('bubble-minimal');
-  
   if (minimalCheckbox) {
     minimalCheckbox.checked = state.bubbleMinimal;
     
@@ -1353,6 +1430,17 @@ function setupBubbleSettings() {
       renderPreview();
     });
   }
+
+  if (taskbarExperimentalCheckbox) {
+    taskbarExperimentalCheckbox.checked = state.taskbarDisplayExperimental;
+    taskbarExperimentalCheckbox.addEventListener('change', (e) => {
+      state.taskbarDisplayExperimental = e.target.checked;
+      saveState();
+      renderPreview();
+      _syncDisplayModeInputs();
+    });
+  }
+  _syncDisplayModeInputs();
 
   // 显示盈亏
   const pnlCheckbox = document.getElementById('show-pnl');
@@ -2862,6 +2950,7 @@ async function _initAsync() {
 
   setupAppSettings();
   renderPreview();
+  _syncDisplayMode();
 
   sessionStorage.removeItem('eulaJustAccepted');
   await _fetchFieldMap({ force: true });
