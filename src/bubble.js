@@ -6,6 +6,7 @@ const _cleanupFns = [];
 const _managedIntervals = new Map();
 const _managedTimeouts = new Map();
 const _singletonFlags = new Set();
+const ALLOWED_THEME_COLORS = new Set(['blue']);
 let _isBubbleUnloading = false;
 let _bubbleInitStarted = false;
 let _resizeObserver = null;
@@ -90,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 等待 Tauri API 加载
 function waitForTauri(callback) {
   if (window.__TAURI__) {
-    callback();
+    setTimeout(callback, 0);
   } else {
     setTimeout(() => waitForTauri(callback), 50);
   }
@@ -211,17 +212,22 @@ function loadConfig() {
     }
     
     state.bubbleRows = parseInt(localStorage.getItem('bubbleRows') || '2');
-    state.bubbleStealth = localStorage.getItem('bubbleStealth') === 'true';
+    state.bubbleStealth = false;
     state.bubbleMinimal = localStorage.getItem('bubbleMinimal') === 'true';
     state.bubbleTheme = localStorage.getItem('bubbleTheme') || 'light';
-    state.bubbleThemeColor = localStorage.getItem('bubbleThemeColor') || 'blue';
+    const savedThemeColor = localStorage.getItem('bubbleThemeColor') || 'blue';
+    state.bubbleThemeColor = ALLOWED_THEME_COLORS.has(savedThemeColor) ? savedThemeColor : 'blue';
     state.bubbleFontSize = parseInt(localStorage.getItem('bubbleFontSize') || '12');
     state.bubbleFontColor = localStorage.getItem('bubbleFontColor') || 'black';
     state.bubbleOpacity = parseInt(localStorage.getItem('bubbleOpacity') || '100');
     state.showPnl = localStorage.getItem('showPnl') === 'true';
     state.selectedPnlWarehouses = JSON.parse(localStorage.getItem('pnl_selected_warehouses') || '[]');
     state.serverUrl = normalizeServerUrl(localStorage.getItem('serverUrl') || (typeof SERVER_URL !== 'undefined' ? SERVER_URL : ''));
-    try { localStorage.setItem('serverUrl', state.serverUrl); } catch (_) {}
+    try {
+      localStorage.setItem('serverUrl', state.serverUrl);
+      localStorage.setItem('bubbleThemeColor', state.bubbleThemeColor);
+      localStorage.removeItem('bubbleStealth');
+    } catch (_) {}
   } catch (_) {
   }
   appLog('info', 'bubble', 'config_loaded', 'bubble config loaded', _getBubbleDiagnostics());
@@ -268,12 +274,16 @@ function applyPricesSnapshot(snapshot) {
 
 function _normalizeBubbleSelectedCodes() {
   const original = Array.isArray(state.selectedCodes) ? state.selectedCodes.slice() : [];
-  const available = new Set((state.prices || []).map(item => item.code).filter(Boolean));
+  const selectable = (typeof DataSource !== 'undefined' && typeof DataSource.getAllItems === 'function')
+    ? DataSource.getAllItems().map(item => item.code).filter(Boolean)
+    : [];
+  const available = new Set(selectable);
   const normalized = [];
   const seen = new Set();
 
   original.forEach((code) => {
-    if (!code || seen.has(code) || !available.has(code)) return;
+    if (!code || seen.has(code)) return;
+    if (available.size > 0 && !available.has(code)) return;
     seen.add(code);
     normalized.push(code);
   });
@@ -297,6 +307,7 @@ function _normalizeBubbleSelectedCodes() {
   appLog('warn', 'bubble', 'selected_codes_normalized', 'bubble selected codes normalized against current prices', _getBubbleDiagnostics({
     originalSelectedCodes: original,
     normalizedSelectedCodes: limited,
+    selectableCodesCount: available.size,
   }));
   return true;
 }
@@ -331,12 +342,12 @@ function _applyBubbleVisualState() {
   document.body.setAttribute('data-theme-color', state.bubbleThemeColor || 'blue');
   document.body.style.opacity = state.bubbleOpacity / 100;
   const _fcMap = { white: '#ffffff', black: '#000000', default: '' };
-  document.body.style.setProperty('--bubble-font-color', _fcMap[state.bubbleFontColor] || '');
+  document.body.style.setProperty('--bubble-font-color', state.bubbleMinimal ? (_fcMap[state.bubbleFontColor] || '') : '');
 
   const bubbleRoot = document.getElementById('bubble-root');
   if (!bubbleRoot) return;
 
-  const visualMode = state.bubbleMinimal ? 'minimal' : (state.bubbleStealth ? 'moyu' : 'normal');
+  const visualMode = state.bubbleMinimal ? 'minimal' : 'normal';
   const signature = [
     state.bubbleTheme,
     state.bubbleThemeColor || 'blue',
@@ -347,7 +358,7 @@ function _applyBubbleVisualState() {
   ].join('|');
 
   bubbleRoot.classList.toggle('minimal', state.bubbleMinimal);
-  bubbleRoot.classList.toggle('moyu', !state.bubbleMinimal && state.bubbleStealth);
+  bubbleRoot.classList.remove('moyu');
 
   _lastVisualSignature = signature;
 }

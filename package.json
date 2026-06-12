@@ -1,8 +1,10 @@
 {
   "name": "goldprice-tauri",
-  "version": "2.2.29",
+  "version": "2.3.1",
   "description": "Gold price desktop client (Tauri)",
   "scripts": {
+    "frontend:dev": "vite --host 127.0.0.1 --port 5173",
+    "frontend:build": "vite build",
     "dev": "tauri dev",
     "build": "tauri build",
     "build:win10": "tauri build --target x86_64-pc-windows-msvc",
@@ -12,10 +14,14 @@
   "author": "Lucas",
   "license": "MIT",
   "devDependencies": {
-    "@tauri-apps/cli": "^1.5.0"
+    "@tauri-apps/cli": "^1.5.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.2.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^1.5.0",
-    "echarts": "^6.0.0"
+    "echarts": "^6.0.0",
+    "tdesign-vue-next": "^1.18.1",
+    "vue": "^3.5.25"
   }
 }

@@ -125,6 +125,12 @@ function getRefPriceItems() {
   return items;
 }
 
+function getRefPriceLabel(code) {
+  const item = getRefPriceItems().find((entry) => entry.code === code);
+  if (item && item.name) return item.name;
+  return getDisplayName(code);
+}
+
 // ============================================
 // 获取仓库总体统计
 // ============================================
@@ -159,10 +165,13 @@ function renderWarehouseList() {
 
   // 新建仓库按钮（放在顶部）
   const newWarehouseBtn = `
-    <div class="warehouse-new-btn" onclick="warehouseModule.showNewWarehouseForm()">
+    <button class="warehouse-new-btn" onclick="warehouseModule.showNewWarehouseForm()">
       <span class="new-btn-icon">+</span>
-      <span class="new-btn-text">新建仓库</span>
-    </div>
+      <span class="new-btn-copy">
+        <span class="new-btn-text">新建仓库</span>
+        <span class="new-btn-subtext">创建新的持仓视图</span>
+      </span>
+    </button>
   `;
 
   if (warehouses.length === 0) {
@@ -190,8 +199,15 @@ function renderWarehouseList() {
       <div class="warehouse-item ${currentWarehouseId === w.id ? 'active' : ''}" 
            data-id="${w.id}"
            onclick="warehouseModule.selectWarehouse('${w.id}')">
-        <div class="warehouse-name">${w.name}</div>
-        <div class="warehouse-stats-mini">${fmt(w.totalGrams, 2)}g | 盈亏:${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥ | 成本:${fmt(cost, 2)}¥</div>
+        <div class="warehouse-item-top">
+          <div class="warehouse-name">${w.name}</div>
+          <div class="warehouse-item-badge">${getRefPriceLabel(w.refPrice)}</div>
+        </div>
+        <div class="warehouse-item-metrics">
+          <span>${fmt(w.totalGrams, 2)}g</span>
+          <span class="${pnl >= 0 ? 'metric-profit' : 'metric-loss'}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥</span>
+        </div>
+        <div class="warehouse-stats-mini">总成本 ${fmt(cost, 2)}¥</div>
       </div>
     `;
   }).join('');
@@ -237,19 +253,32 @@ function renderWarehouseDetail(id) {
   const currentValue = warehouse.totalGrams * currentPrice;
   const pnl = currentValue - totalCost;
   const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+  const avgCost = warehouse.totalGrams > 0 ? totalCost / warehouse.totalGrams : 0;
 
   const detail = document.getElementById('warehouse-detail');
   detail.innerHTML = `
     <div class="warehouse-detail-container">
-
-      <!-- 1. 当前库情况 -->
-      <div class="warehouse-block block-status">
-        <div class="block-header-with-action">
-          <h3 class="block-title">当前库情况</h3>
+      <div class="warehouse-hero">
+        <div class="warehouse-hero-main">
+          <span class="warehouse-hero-eyebrow">仓库详情</span>
+          <h2 class="warehouse-title">${warehouse.name}</h2>
+          <div class="warehouse-hero-meta">
+            <span>参考金价：${getRefPriceLabel(warehouse.refPrice)}</span>
+            <span>当前价格：${fmt(currentPrice, 2)} ${currency}/g</span>
+            <span>收益率：${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%</span>
+          </div>
+        </div>
+        <div class="warehouse-hero-actions">
           <button class="btn btn-danger btn-small" onclick="warehouseModule.deleteWarehouse('${id}')">删除仓库</button>
         </div>
-        
-        <!-- 状态数据块 -->
+      </div>
+
+      <div class="warehouse-block block-status">
+        <div class="block-header-with-action">
+          <h3 class="block-title">仓位概览</h3>
+          <span class="warehouse-block-caption">实时跟踪当前仓位与盈亏表现</span>
+        </div>
+
         <div class="status-grid">
           <div class="status-item">
             <span class="status-label">当前价格</span>
@@ -269,74 +298,75 @@ function renderWarehouseDetail(id) {
           </div>
           <div class="status-item">
             <span class="status-label">成本价</span>
-            <span class="status-value">${warehouse.totalGrams > 0 ? fmt(totalCost / warehouse.totalGrams, 2) : '0'} ¥/g</span>
+            <span class="status-value">${fmt(avgCost, 2)} ¥/g</span>
           </div>
           <div class="status-item">
             <span class="status-label">总成本</span>
             <span class="status-value">${fmt(totalCost, 2)} ¥</span>
           </div>
         </div>
-        
-        <!-- 仓库信息表单 -->
+
         <div class="warehouse-info-form">
           <div class="form-row">
             <label>仓库名称</label>
             <input type="text" id="rename-input-${id}" placeholder="当前" value="${warehouse.name}">
             <button class="btn btn-secondary btn-small" onclick="warehouseModule.renameWarehouse('${id}')">重命名</button>
           </div>
-          <div class="form-row">
-            <label>价格参考</label>
-            <select id="refprice-select-${id}" onchange="warehouseModule.changeRefPrice('${id}')">
-              ${getRefPriceItems().map(item => `
-                <option value="${item.code}" ${item.code === warehouse.refPrice ? 'selected' : ''}>
-                  ${item.name}
-                </option>
+            <div class="form-row">
+              <label>参考金价</label>
+              <select id="refprice-select-${id}" onchange="warehouseModule.changeRefPrice('${id}')">
+                ${getRefPriceItems().map(item => `
+                  <option value="${item.code}" ${item.code === warehouse.refPrice ? 'selected' : ''}>
+                    ${item.name}
+                  </option>
               `).join('')}
             </select>
           </div>
         </div>
       </div>
 
-      <!-- 2. 交易操作 -->
-      <div class="warehouse-block block-trade">
-        <h3 class="block-title">交易操作</h3>
-        <div class="trade-form-stacked">
-          <div class="form-row">
-            <label>数量（克）</label>
-            <input type="number" id="buy-grams-${id}" placeholder="0.000" step="0.0001" min="0">
+      <div class="warehouse-ops-grid">
+        <div class="warehouse-block block-trade">
+          <h3 class="block-title">交易操作</h3>
+          <div class="trade-form-stacked">
+            <div class="form-row">
+              <label>数量（克）</label>
+              <input type="number" id="buy-grams-${id}" placeholder="0.000" step="0.0001" min="0">
+            </div>
+            <div class="form-row">
+              <label>价格（¥/g）</label>
+              <input type="number" id="buy-price-${id}" placeholder="${fmt(currentPrice, 2)}" step="0.01" min="0" value="${fmt(currentPrice, 2)}">
+            </div>
+            <div class="form-row form-row-buttons">
+              <button class="btn btn-primary warehouse-btn-primary" onclick="warehouseModule.buy('${id}')">买入</button>
+              <button class="btn btn-danger" onclick="warehouseModule.sell('${id}')">卖出</button>
+            </div>
           </div>
-          <div class="form-row">
-            <label>价格（¥/g）</label>
-            <input type="number" id="buy-price-${id}" placeholder="${fmt(currentPrice, 2)}" step="0.01" min="0" value="${fmt(currentPrice, 2)}">
-          </div>
-          <div class="form-row form-row-buttons">
-            <button class="btn btn-success" onclick="warehouseModule.buy('${id}')">买入</button>
-            <button class="btn btn-danger" onclick="warehouseModule.sell('${id}')">卖出</button>
+        </div>
+
+        <div class="warehouse-block block-adjust">
+          <h3 class="block-title">调整当前仓位</h3>
+          <div class="adjust-form-stacked">
+            <div class="form-row">
+              <label>持仓数量（克）</label>
+              <input type="number" id="adjust-grams-${id}" placeholder="${fmt(warehouse.totalGrams, 4)}" step="0.0001" min="0">
+            </div>
+            <div class="form-row">
+              <label>成本价（¥/g）</label>
+              <input type="number" id="adjust-cost-price-${id}" placeholder="${fmt(avgCost, 2)}" step="0.01" min="0">
+            </div>
+            <div class="form-row form-row-buttons">
+              <button class="btn btn-primary warehouse-btn-primary" onclick="warehouseModule.adjustPosition('${id}')">应用调整</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 3. 调整当前仓位 -->
-      <div class="warehouse-block block-adjust">
-        <h3 class="block-title">调整当前仓位</h3>
-        <div class="adjust-form-stacked">
-          <div class="form-row">
-            <label>持仓数量（克）</label>
-            <input type="number" id="adjust-grams-${id}" placeholder="${fmt(warehouse.totalGrams, 4)}" step="0.0001" min="0">
-          </div>
-          <div class="form-row">
-            <label>成本价（¥/g）</label>
-            <input type="number" id="adjust-cost-price-${id}" placeholder="${warehouse.totalGrams > 0 ? fmt(totalCost / warehouse.totalGrams, 2) : '0'}" step="0.01" min="0">
-          </div>
-          <div class="form-row form-row-buttons">
-            <button class="btn btn-secondary" onclick="warehouseModule.adjustPosition('${id}')">应用调整</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. 交易记录 -->
       <div class="warehouse-block block-history">
-        <h3 class="block-title">交易记录</h3>
+        <div class="block-header-with-action">
+          <h3 class="block-title">交易记录</h3>
+          <span class="warehouse-block-caption">按时间倒序展示最近操作</span>
+        </div>
         <div class="history-list">
           ${warehouse.history && warehouse.history.length > 0 ? 
             warehouse.history.slice().reverse().map((h, index) => {
@@ -406,9 +436,13 @@ function showNewWarehouseForm() {
   const detail = document.getElementById('warehouse-detail');
   detail.innerHTML = `
     <div class="warehouse-detail-container">
-      <div class="warehouse-detail-header">
-        <div class="header-left">
-          <h2 class="warehouse-title">创建新仓库</h2>
+      <div class="warehouse-hero warehouse-hero-create">
+        <div class="warehouse-hero-main">
+          <span class="warehouse-hero-eyebrow">创建仓库</span>
+          <h2 class="warehouse-title">新建仓库</h2>
+          <div class="warehouse-hero-meta">
+            <span>支持先录入初始持仓，也可以创建后再逐笔交易</span>
+          </div>
         </div>
       </div>
 

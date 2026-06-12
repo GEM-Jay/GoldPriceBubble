@@ -1,14 +1,14 @@
 {
   "build": {
-    "beforeBuildCommand": "",
-    "beforeDevCommand": "",
-    "devPath": "../src",
-    "distDir": "../src",
+    "beforeBuildCommand": "npm run frontend:build",
+    "beforeDevCommand": "npm run frontend:dev",
+    "devPath": "http://127.0.0.1:5173",
+    "distDir": "../dist",
     "withGlobalTauri": true
   },
   "package": {
     "productName": "GoldPrice",
-    "version": "2.2.29"
+    "version": "2.3.1"
   },
   "tauri": {
     "allowlist": {

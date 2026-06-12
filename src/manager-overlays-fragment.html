@@ -1,0 +1,126 @@
+<!-- 用户协议弹窗 -->
+    <div id="eula-overlay" class="modal-overlay eula-overlay" style="display:none;">
+      <div class="eula-box">
+        <div class="eula-header">
+          <div class="eula-header-left">
+            <span class="eula-logo">GOLD<span>PRICE</span></span>
+            <div class="eula-title-group">
+              <h3 class="eula-title">用户使用协议</h3>
+              <span class="eula-meta">v1.0 &nbsp;·&nbsp; 2026 年 3 月</span>
+            </div>
+          </div>
+          <div class="eula-scroll-track">
+            <div class="eula-scroll-bar" id="eula-scroll-bar"></div>
+          </div>
+        </div>
+
+        <div class="eula-body">
+          <p class="eula-lead">在使用本软件前，请完整阅读以下条款。<strong>点击"同意"即视为您已阅读并接受全部内容。</strong>如不同意，请关闭并卸载本软件。</p>
+
+          <h4>一、软件性质与使用范围</h4>
+          <p>1.1 本软件为个人桌面工具，仅供个人非商业用途使用，用于汇聚展示来自公开互联网的黄金价格参考信息。</p>
+          <p>1.2 本软件严禁用于任何商业目的，包括但不限于：转售数据、提供商业数据服务、对外提供 API 接口等。</p>
+          <p>1.3 用户应确保在所在国家或地区的法律框架内合法使用本软件。</p>
+
+          <h4>二、数据来源与免责声明</h4>
+          <p>2.1 本软件展示的所有价格数据均来源于用户本机向第三方公开网站发起的网络请求（客户端爬取），本软件开发者不存储、不转发、不处理任何用户数据或价格数据。</p>
+          <p>2.2 本软件对所展示数据的<strong>准确性、完整性、实时性及合法性不作任何明示或默示的保证</strong>。所有数据仅供参考，不构成任何投资建议。</p>
+          <p>2.3 用户因参考本软件展示的数据而产生的任何投资损失，与本软件开发者无关，用户自行承担全部风险和责任。</p>
+
+          <h4>三、网络请求与第三方网站</h4>
+          <p>3.1 本软件在用户主动操作或定时任务触发时，由<strong>用户本机</strong>直接向第三方网站发起 HTTP 请求以获取公开数据。上述网络行为由用户设备独立发起，本软件开发者不作为任何网络请求的中间方。</p>
+          <p>3.2 用户应自行了解并遵守所访问第三方网站的服务条款与使用规则。因用户网络行为违反第三方网站条款而产生的任何法律责任，由用户独立承担，与本软件开发者无关。</p>
+          <p>3.3 本软件不对第三方网站的可用性、稳定性或内容变更负责。</p>
+
+          <h4>四、数据安全与隐私</h4>
+          <p>4.1 本软件所有配置与数据均<strong>仅存储于用户本地设备</strong>，本软件开发者无法访问用户的任何本地数据。</p>
+          <p>4.2 本软件不收集用户个人信息，不包含任何追踪或统计模块。</p>
+
+          <h4>五、软件更新</h4>
+          <p>5.1 本软件可能定期推送更新。更新行为需经用户确认后方可执行，本软件不会在未经用户同意的情况下自动安装更新。</p>
+          <p>5.2 开发者保留随时修改或终止软件服务的权利，且无需事先通知。</p>
+
+          <h4>六、责任限制</h4>
+          <p>6.1 在适用法律允许的最大范围内，本软件开发者对因使用或无法使用本软件所导致的任何直接、间接、偶然、特殊或后果性损害不承担任何责任。</p>
+          <p>6.2 若本软件存在任何缺陷或错误，开发者的最大责任以用户为获取本软件而实际支付的费用为限（如为免费获取，则责任上限为零）。</p>
+
+          <h4>七、协议变更与终止</h4>
+          <p>7.1 开发者有权随时更新本协议，更新后的协议将在软件下次启动时再次提示用户确认。</p>
+          <p>7.2 用户可随时停止使用并卸载本软件，卸载即视为终止本协议，但终止前已发生的条款对双方仍具约束力。</p>
+
+          <h4>八、适用法律</h4>
+          <p>8.1 本协议的订立、效力、解释及争议解决均适用中华人民共和国法律。</p>
+        </div>
+
+        <div class="eula-footer">
+          <span class="eula-hint" id="eula-hint-text">请滚动阅读完整协议后方可同意</span>
+          <div class="eula-actions">
+            <button id="eula-reject-btn" class="eula-btn eula-btn-reject">拒绝</button>
+            <button id="eula-accept-btn" class="eula-btn eula-btn-accept eula-btn-locked">同意</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 服务器通知弹窗 -->
+    <div id="server-message-overlay" class="modal-overlay" style="display:none;">
+      <div class="modal-box">
+        <div class="modal-header">
+          <span class="modal-icon">📢</span>
+          <h3 id="server-message-title" class="modal-title"></h3>
+        </div>
+        <div id="server-message-body" class="modal-body"></div>
+        <div class="modal-footer">
+          <a id="server-message-url" href="#" target="_blank" class="btn btn-secondary btn-small" style="display:none;">查看详情</a>
+          <button id="server-message-close" class="btn btn-primary btn-small">我知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 通用提示弹窗 -->
+    <div id="toast-overlay" class="modal-overlay" style="display:none;">
+      <div class="modal-box" style="max-width:360px;">
+        <div class="modal-header">
+          <span class="modal-icon" id="toast-icon"></span>
+          <h3 class="modal-title" id="toast-title"></h3>
+        </div>
+        <div class="modal-body" id="toast-body"></div>
+        <div class="modal-footer">
+          <button id="toast-ok" class="btn btn-primary btn-small">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 下载完成确认弹窗 -->
+    <div id="post-download-overlay" class="modal-overlay" style="display:none;">
+      <div class="modal-box" style="max-width:360px;">
+        <div class="modal-header">
+          <span class="modal-icon">✅</span>
+          <h3 class="modal-title">下载完成</h3>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:13px;line-height:1.6;color:var(--text-secondary);">安装包已下载完成，是否立即安装更新？安装过程中应用将关闭并重启。</p>
+        </div>
+        <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+          <button id="post-download-later" class="btn btn-secondary btn-small">稍后安装</button>
+          <button id="post-download-now" class="btn btn-primary btn-small">立即安装</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ticket-history-overlay" class="modal-overlay" style="display:none;">
+      <div class="ticket-history-modal">
+        <div class="ticket-history-modal-header">
+          <div>
+            <h3 class="modal-title">我的工单</h3>
+          </div>
+          <div class="ticket-history-header-actions">
+            <button id="ticket-refresh-btn" class="btn btn-secondary btn-small" type="button">刷新</button>
+            <button id="ticket-history-close" class="ticket-modal-close" type="button" aria-label="关闭">×</button>
+          </div>
+        </div>
+        <div class="ticket-history-modal-body">
+          <div id="ticket-list" class="ticket-list"></div>
+        </div>
+      </div>
+    </div>

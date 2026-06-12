@@ -52,28 +52,62 @@
 
   function _palette() {
     return _dark() ? {
-      text: '#e8e8f0',
-      sub: '#8c90aa',
-      grid: 'rgba(255,255,255,0.08)',
-      axis: 'rgba(255,255,255,0.15)',
+      text: '#eef3fb',
+      sub: '#9aa7bb',
+      subStrong: '#c5cedd',
+      grid: 'rgba(255,255,255,0.06)',
+      axis: 'rgba(255,255,255,0.14)',
+      crosshair: 'rgba(148, 163, 184, 0.22)',
       up: '#e84057',
       down: '#26a69a',
-      line: '#f5c518',
-      area: 'rgba(245,197,24,0.10)',
-      tipBg: 'rgba(12,12,22,0.96)',
-      tipBorder: 'rgba(255,255,255,0.10)',
+      line: '#7fb0ff',
+      lineGlow: 'rgba(83, 145, 255, 0.28)',
+      lineSoft: 'rgba(127, 176, 255, 0.22)',
+      tipBg: 'rgba(17,22,31,0.96)',
+      tipBorder: 'rgba(255,255,255,0.08)',
+      plotBgTop: 'rgba(74, 120, 255, 0.08)',
+      plotBgBottom: 'rgba(74, 120, 255, 0.01)',
+      areaTop: 'rgba(96, 148, 255, 0.24)',
+      areaBottom: 'rgba(96, 148, 255, 0.02)',
+      pointFill: '#10151d',
+      pointStroke: '#8db8ff',
     } : {
-      text: '#222',
-      sub: '#7a7f90',
-      grid: 'rgba(0,0,0,0.06)',
-      axis: 'rgba(0,0,0,0.10)',
+      text: '#1c2430',
+      sub: '#7d8797',
+      subStrong: '#5d6777',
+      grid: 'rgba(15,23,42,0.06)',
+      axis: 'rgba(15,23,42,0.10)',
+      crosshair: 'rgba(90, 102, 121, 0.18)',
       up: '#e84057',
       down: '#26a69a',
-      line: '#d4900a',
-      area: 'rgba(212,144,10,0.10)',
+      line: '#0052d9',
+      lineGlow: 'rgba(0, 82, 217, 0.16)',
+      lineSoft: 'rgba(0, 82, 217, 0.16)',
       tipBg: 'rgba(255,255,255,0.98)',
-      tipBorder: 'rgba(0,0,0,0.10)',
+      tipBorder: 'rgba(15,23,42,0.08)',
+      plotBgTop: 'rgba(0, 82, 217, 0.05)',
+      plotBgBottom: 'rgba(0, 82, 217, 0.01)',
+      areaTop: 'rgba(0, 82, 217, 0.18)',
+      areaBottom: 'rgba(0, 82, 217, 0.01)',
+      pointFill: '#ffffff',
+      pointStroke: '#0052d9',
     };
+  }
+
+  function _formatValue(value, digits = 2) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '—';
+    return num.toLocaleString('zh-CN', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  }
+
+  function _lineSmooth() {
+    if (_range === 0) return 0.22;
+    if (_range === 7) return 0.18;
+    if (_range === 30) return 0.16;
+    return 0.12;
   }
 
   function _aggMins(data, mins) {
@@ -194,11 +228,13 @@
 
   function _seriesPayload(raw) {
     const colors = _palette();
+    const values = raw.map((r) => r[4]);
+    const lastIndex = Math.max(raw.length - 1, 0);
     return {
       category: raw.map((r) => _labelForDate(r[0])),
       fullLabel: raw.map((r) => r[0]),
       candle: raw.map((r) => [r[1], r[4], r[3], r[2]]),
-      line: raw.map((r) => r[4]),
+      line: values,
       volume: raw.map((r) => r[5] || 0),
       volumeColor: raw.map((r) => r[4] >= r[1] ? colors.up : colors.down),
       last: raw[raw.length - 1],
@@ -206,6 +242,9 @@
       high: Math.max(...raw.map((r) => r[2])),
       low: Math.min(...raw.map((r) => r[3])),
       maxVol: Math.max(...raw.map((r) => r[5] || 0), 0),
+      lastIndex,
+      lineMin: Math.min(...values),
+      lineMax: Math.max(...values),
     };
   }
 
@@ -257,16 +296,16 @@
     const pct = prevClose ? ((delta / prevClose) * 100).toFixed(2) : '0.00';
     const c = _palette();
     return `
-      <div style="min-width:138px;padding:0 1px">
-        <div style="font-size:10px;color:${c.sub};margin-bottom:5px;letter-spacing:.2px">${date}</div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
-          <div style="font-size:17px;font-weight:800;color:${c.text}">${_sym()}${close.toFixed(2)}</div>
-          <div style="font-size:11px;font-weight:700;color:${delta >= 0 ? c.up : c.down}">${sign}${delta.toFixed(2)} ${sign}${pct}%</div>
+      <div style="min-width:152px;padding:1px 2px">
+        <div style="font-size:10px;color:${c.sub};margin-bottom:7px;letter-spacing:.2px">${date}</div>
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:8px">
+          <div style="font-size:18px;font-weight:800;letter-spacing:-.02em;color:${c.text}">${_sym()}${_formatValue(close, 2)}</div>
+          <div style="font-size:11px;font-weight:700;color:${delta >= 0 ? c.up : c.down};white-space:nowrap">${sign}${_formatValue(delta, 2)} ${sign}${pct}%</div>
         </div>
-        <div style="display:grid;grid-template-columns:auto auto;gap:3px 10px;font-size:10px;line-height:1.35">
-          <span style="color:${c.sub}">开盘</span><span style="text-align:right">${_sym()}${open.toFixed(2)}</span>
-          <span style="color:${c.sub}">最高</span><span style="text-align:right;color:${c.up}">${_sym()}${high.toFixed(2)}</span>
-          <span style="color:${c.sub}">最低</span><span style="text-align:right;color:${c.down}">${_sym()}${low.toFixed(2)}</span>
+        <div style="display:grid;grid-template-columns:auto auto;gap:4px 12px;font-size:10px;line-height:1.45">
+          <span style="color:${c.sub}">开盘</span><span style="text-align:right;color:${c.subStrong}">${_sym()}${_formatValue(open, 2)}</span>
+          <span style="color:${c.sub}">最高</span><span style="text-align:right;color:${c.up}">${_sym()}${_formatValue(high, 2)}</span>
+          <span style="color:${c.sub}">最低</span><span style="text-align:right;color:${c.down}">${_sym()}${_formatValue(low, 2)}</span>
         </div>
       </div>`;
   }
@@ -274,10 +313,33 @@
   function _option(raw) {
     const c = _palette();
     const payload = _seriesPayload(raw);
+    const isLine = _type !== 'candle';
+    const minPad = Math.max((payload.lineMax - payload.lineMin) * 0.12, 0.2);
     return {
       animation: false,
       backgroundColor: 'transparent',
-      grid: { left: 22, right: 62, top: 14, bottom: 34 },
+      grid: {
+        left: 14,
+        right: 12,
+        top: 18,
+        bottom: 28,
+        containLabel: true,
+      },
+      graphic: isLine ? [{
+        type: 'rect',
+        left: 14,
+        right: 12,
+        top: 14,
+        bottom: 28,
+        silent: true,
+        shape: { r: 18 },
+        style: {
+          fill: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: c.plotBgTop },
+            { offset: 1, color: c.plotBgBottom },
+          ]),
+        },
+      }] : undefined,
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross' },
@@ -286,18 +348,25 @@
         backgroundColor: c.tipBg,
         borderColor: c.tipBorder,
         textStyle: { color: c.text },
-        extraCssText: 'border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.16);',
+        extraCssText: `border-radius:14px;box-shadow:${_dark() ? '0 18px 42px rgba(0,0,0,.34)' : '0 16px 36px rgba(15,23,42,.12)'};`,
         formatter: _tooltipFormatter,
       },
       axisPointer: {
+        snap: true,
+        lineStyle: { color: c.crosshair, width: 1, type: 'dashed' },
         label: { show: false },
       },
       xAxis: {
         type: 'category',
         data: payload.category,
-        boundaryGap: _type === 'candle',
+        boundaryGap: _type === 'candle' ? true : ['2%', '4%'],
         axisLine: { lineStyle: { color: c.axis } },
-        axisLabel: { color: c.sub, hideOverlap: true },
+        axisLabel: {
+          color: c.sub,
+          hideOverlap: true,
+          margin: 12,
+          fontSize: 11,
+        },
         axisTick: { show: false },
         splitLine: { show: false },
         axisPointer: {
@@ -310,7 +379,14 @@
         position: 'right',
         splitNumber: 5,
         axisLine: { show: false },
-        axisLabel: { color: c.sub },
+        min: isLine ? (value) => value.min - minPad : null,
+        max: isLine ? (value) => value.max + minPad : null,
+        axisLabel: {
+          color: c.sub,
+          margin: 10,
+          fontSize: 11,
+          formatter: (value) => _formatValue(value, _currency === 'usd' ? 2 : 2),
+        },
         splitLine: { lineStyle: { color: c.grid } },
         axisPointer: { show: true, label: { show: false } },
       },
@@ -333,11 +409,44 @@
         {
           type: 'line',
           data: payload.line,
-          smooth: false,
+          smooth: _lineSmooth(),
           symbol: 'none',
           sampling: raw.length > 240 ? 'lttb' : undefined,
-          lineStyle: { color: c.line, width: 2 },
-          areaStyle: { color: c.area },
+          lineStyle: {
+            color: c.line,
+            width: _range === 0 ? 2.6 : 2.4,
+            cap: 'round',
+            join: 'round',
+            shadowColor: c.lineGlow,
+            shadowBlur: 10,
+            shadowOffsetY: 4,
+          },
+          areaStyle: {
+            color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: c.areaTop },
+              { offset: 0.7, color: c.areaBottom },
+              { offset: 1, color: 'rgba(0,0,0,0)' },
+            ]),
+          },
+          emphasis: {
+            focus: 'series',
+          },
+          markPoint: {
+            silent: true,
+            symbol: 'circle',
+            symbolSize: 10,
+            itemStyle: {
+              color: c.pointFill,
+              borderColor: c.pointStroke,
+              borderWidth: 3,
+              shadowColor: c.lineSoft,
+              shadowBlur: 12,
+            },
+            label: { show: false },
+            data: [
+              { coord: [payload.category[payload.lastIndex], payload.line[payload.lastIndex]] },
+            ],
+          },
           progressive: 600,
         },
       ],

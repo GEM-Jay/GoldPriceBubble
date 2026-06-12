@@ -1,0 +1,725 @@
+.tdesign-manager-shell .t-button {
+  font: inherit;
+}
+
+.tdesign-manager-shell.t-layout {
+  min-height: 100vh;
+  height: 100vh;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.tdesign-manager-shell .t-layout.main {
+  min-width: 0;
+  min-height: 0;
+  height: 100vh;
+  background: transparent;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tdesign-manager-shell .nav-item.t-button {
+  justify-content: flex-start;
+  gap: 10px;
+  height: auto;
+  min-height: 42px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.tdesign-manager-shell .nav-item.t-button .t-button__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tdesign-manager-shell .nav-item.t-button:hover {
+  border-color: rgba(0, 82, 217, 0.08);
+}
+
+.tdesign-manager-shell .nav-item.t-button.active {
+  background: rgba(0, 82, 217, 0.1);
+  color: #0052d9;
+  border-color: rgba(0, 82, 217, 0.14);
+}
+
+.tdesign-manager-shell .nav-item.t-button.active:hover {
+  background: rgba(0, 82, 217, 0.12);
+}
+
+.tdesign-manager-shell .topbar-last-update {
+  font-size: 11px;
+  margin-right: 8px;
+}
+
+.tdesign-manager-shell .topbar-action-btn.t-button {
+  height: 34px;
+  padding-inline: 16px;
+  border-radius: 10px;
+  background: #0052d9;
+  border-color: #0052d9;
+  box-shadow: none;
+}
+
+.tdesign-manager-shell .topbar-action-btn.t-button:hover {
+  background: #144fcc;
+  border-color: #144fcc;
+}
+
+.tdesign-manager-shell .update-action-btn.t-button {
+  min-height: 30px;
+  padding-inline: 12px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.tdesign-manager-shell .t-card {
+  border-radius: 16px;
+  border: 1px solid rgba(0, 82, 217, 0.08);
+  box-shadow: none;
+}
+
+.tdesign-manager-shell .manager-main-content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tdesign-manager-shell .content .card.t-card,
+.tdesign-manager-shell .content .style-panel.t-card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 82, 217, 0.08);
+  box-shadow: none;
+}
+
+.tdesign-manager-shell .content .btn.t-button,
+.tdesign-manager-shell .content .rows-step-btn.t-button,
+.tdesign-manager-shell .content .chart-range-btn.t-button,
+.tdesign-manager-shell .content .chart-type-btn.t-button,
+.tdesign-manager-shell .content .chart-refresh-btn.t-button,
+.tdesign-manager-shell .content .chart-currency-btn.t-button,
+.tdesign-manager-shell .content .font-color-btn.t-button,
+.tdesign-manager-shell .content .ticket-image-add.t-button {
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.tdesign-manager-shell .content .btn.btn-primary.t-button,
+.tdesign-manager-shell .content .chart-range-btn.active.t-button,
+.tdesign-manager-shell .content .chart-type-btn.active.t-button,
+.tdesign-manager-shell .content .chart-currency-btn.active.t-button {
+  background: #0052d9;
+  border-color: #0052d9;
+  color: #fff;
+}
+
+.tdesign-manager-shell .content .badge.t-tag {
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.tdesign-manager-shell .content .td-compat-field {
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid #d9e1f2;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tdesign-manager-shell .content textarea.td-compat-field {
+  min-height: 108px;
+  padding: 10px 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.tdesign-manager-shell .content input.td-compat-field,
+.tdesign-manager-shell .content select.td-compat-field {
+  padding: 0 12px;
+}
+
+.tdesign-manager-shell .content input.td-compat-field:focus,
+.tdesign-manager-shell .content select.td-compat-field:focus,
+.tdesign-manager-shell .content textarea.td-compat-field:focus {
+  border-color: rgba(0, 82, 217, 0.36);
+  box-shadow: 0 0 0 3px rgba(0, 82, 217, 0.08);
+  outline: none;
+}
+
+/* Layout corrections */
+.tdesign-manager-shell.app {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+}
+
+.tdesign-manager-shell .sidebar {
+  width: 176px !important;
+  min-width: 176px !important;
+  max-width: 176px !important;
+  flex: 0 0 176px !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  box-shadow: 12px 0 28px rgba(15, 23, 42, 0.05);
+  position: relative;
+  z-index: 2;
+}
+
+.tdesign-manager-shell .sidebar-nav {
+  display: flex;
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch;
+  justify-content: flex-start !important;
+  align-content: flex-start !important;
+}
+
+.tdesign-manager-shell .sidebar-footer,
+.tdesign-manager-shell .sidebar-ambient {
+  display: block !important;
+}
+
+.tdesign-manager-shell .main,
+.tdesign-manager-shell .manager-main-content,
+.tdesign-manager-shell .content {
+  min-height: 0 !important;
+}
+
+.tdesign-manager-shell .content {
+  flex: 1 1 auto;
+  min-height: 0 !important;
+  height: 100%;
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  pointer-events: auto;
+  -webkit-app-region: no-drag !important;
+  overscroll-behavior: contain;
+}
+
+/* Price header stays on one line */
+.tdesign-manager-shell .card-title-block {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: nowrap;
+}
+
+.tdesign-manager-shell .fetch-rate-hint {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tdesign-manager-shell #view-prices .card-header {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.tdesign-manager-shell #view-prices .card-header-right {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap !important;
+  white-space: nowrap;
+}
+
+.tdesign-manager-shell #view-prices .rows-stepper,
+.tdesign-manager-shell #view-prices .badge,
+.tdesign-manager-shell #view-prices #deselect-all-btn {
+  flex-shrink: 0;
+}
+
+/* Price grid: max 3 columns */
+.tdesign-manager-shell .price-select-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(320px, 420px)) !important;
+  gap: 12px 14px;
+  justify-content: center !important;
+  align-content: start;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .tdesign-manager-shell #view-prices .card-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+
+  .tdesign-manager-shell .card-title-block {
+    gap: 10px;
+  }
+
+  .tdesign-manager-shell .fetch-rate-hint {
+    font-size: 10px;
+  }
+
+  .tdesign-manager-shell .price-select-list {
+    grid-template-columns: repeat(2, minmax(280px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 920px) {
+  .tdesign-manager-shell .price-select-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .tdesign-manager-shell .price-select-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .tdesign-manager-shell .price-card,
+  .tdesign-manager-shell .price-card.selected {
+    min-width: 0;
+  }
+}
+
+/* Sidebar button stability at narrow widths */
+.tdesign-manager-shell .nav-item.t-button {
+  min-height: 42px !important;
+  height: 42px !important;
+  flex: 0 0 42px !important;
+  align-items: center !important;
+}
+
+.tdesign-manager-shell .nav-item.t-button .t-button__text {
+  min-width: 0;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.tdesign-manager-shell .nav-item-label {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Preview centering */
+.tdesign-manager-shell .bubble-preview.t-card {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.tdesign-manager-shell .bubble-preview > .t-card__body {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.tdesign-manager-shell #bubble-preview {
+  text-align: center;
+}
+
+.tdesign-manager-shell .bubble-preview-content {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Ensure legacy view containers can actually scroll inside content */
+.tdesign-manager-shell .manager-main-content > div {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.tdesign-manager-shell .content,
+.tdesign-manager-shell .view,
+.tdesign-manager-shell #view-settings,
+.tdesign-manager-shell #view-bubble-style,
+.tdesign-manager-shell #view-store,
+.tdesign-manager-shell #view-chart,
+.tdesign-manager-shell #view-prices {
+  pointer-events: auto;
+}
+
+.tdesign-manager-shell .view.active {
+  min-height: max-content;
+}
+
+/* Price page sizing */
+.tdesign-manager-shell #view-prices .card {
+  width: min(100%, 1180px);
+  max-width: 1180px;
+  min-height: 0;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.tdesign-manager-shell .price-card {
+  display: flex;
+  align-items: center;
+  min-height: 60px;
+  height: 64px;
+  max-height: 64px;
+  padding: 10px 18px 10px 18px;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.tdesign-manager-shell .price-card::before {
+  display: none !important;
+}
+
+.tdesign-manager-shell .price-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  pointer-events: none;
+  transition: border-color 0.18s ease, background-color 0.18s ease, opacity 0.18s ease;
+}
+
+.tdesign-manager-shell .price-card:hover::after {
+  border-color: rgba(0, 82, 217, 0.08);
+}
+
+.tdesign-manager-shell .price-card-label {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 124px;
+  align-items: center !important;
+  column-gap: 20px;
+  width: 100%;
+  min-height: 100%;
+  padding-left: 36px !important;
+}
+
+.tdesign-manager-shell .price-card-left {
+  min-width: 0;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  text-align: left;
+  min-height: 100%;
+}
+
+.tdesign-manager-shell .price-card-name {
+  width: 100%;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 1.2;
+  color: #18202c;
+  text-align: left !important;
+}
+
+.tdesign-manager-shell .price-card-right {
+  min-width: 124px;
+  width: 124px;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  text-align: right;
+  gap: 7px !important;
+  min-height: 100%;
+  padding-right: 4px;
+}
+
+.tdesign-manager-shell .price-card-value {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: #0052d9 !important;
+  text-align: center !important;
+}
+
+.tdesign-manager-shell .price-card-currency {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1;
+  color: #667085 !important;
+  text-align: right !important;
+}
+
+.tdesign-manager-shell .price-checkbox {
+  left: 18px !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin-top: -8px !important;
+  border-radius: 4px !important;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #fff;
+  border: 1.5px solid #c5cfdd;
+  box-shadow: none;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tdesign-manager-shell .price-checkbox:hover {
+  border-color: #97add6;
+}
+
+.tdesign-manager-shell .price-checkbox:checked {
+  background: #0052d9;
+  border-color: #0052d9;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.tdesign-manager-shell .price-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.tdesign-manager-shell .price-card.selected {
+  background: linear-gradient(180deg, rgba(245, 248, 252, 0.98), rgba(239, 244, 250, 0.98));
+  border-color: rgba(99, 132, 191, 0.62) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(46, 91, 168, 0.07),
+    0 8px 18px rgba(46, 91, 168, 0.06) !important;
+}
+
+.tdesign-manager-shell .price-card.selected::after {
+  border-color: rgba(46, 91, 168, 0.14);
+  background:
+    linear-gradient(90deg, rgba(46, 91, 168, 0.05) 0, rgba(46, 91, 168, 0.016) 56px, transparent 96px);
+}
+
+/* Dark theme corrections */
+[data-theme="dark"] .tdesign-manager-shell.t-layout {
+  background: #12161d;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .sidebar {
+  background: #1b212b !important;
+  box-shadow: 12px 0 28px rgba(0, 0, 0, 0.24);
+}
+
+[data-theme="dark"] .tdesign-manager-shell .sidebar-header {
+  border-bottom-color: #303847 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .sidebar-logo {
+  color: #78a9ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .nav-item.t-button {
+  color: #a7b2c4 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .nav-item.t-button:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(120, 169, 255, 0.14) !important;
+  color: #edf3ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .nav-item.t-button.active {
+  background: rgba(0, 82, 217, 0.18) !important;
+  color: #8eb7ff !important;
+  border-color: rgba(86, 140, 255, 0.28) !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .nav-item.active .nav-item-icon {
+  background: rgba(86, 140, 255, 0.16) !important;
+  color: #8eb7ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .bubble-preview.t-card,
+[data-theme="dark"] .tdesign-manager-shell #update-banner.t-card {
+  background: #202632 !important;
+  border-color: #323c4c !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .sidebar-copy {
+  color: #7f8ba0 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .sidebar-ambient {
+  background: linear-gradient(180deg, transparent 0%, rgba(33, 40, 50, 0.94) 100%) !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .topbar {
+  background: #1a2029 !important;
+  border-bottom-color: #303847 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .top-title {
+  color: #eef3fb !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .status-indicator {
+  background: #252d39 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .topbar-last-update {
+  color: #96a3b8 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .wc-btn {
+  color: #aeb8c8 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .wc-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .content .card.t-card,
+[data-theme="dark"] .tdesign-manager-shell .content .style-panel.t-card,
+[data-theme="dark"] .tdesign-manager-shell .t-card {
+  background: #202632 !important;
+  border-color: #323c4c !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .content .td-compat-field {
+  background: #171c24 !important;
+  border-color: #394455 !important;
+  color: #edf3ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .content .td-compat-field::placeholder {
+  color: #7f8ba0 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .content .td-compat-field:focus {
+  border-color: rgba(86, 140, 255, 0.4) !important;
+  box-shadow: 0 0 0 3px rgba(86, 140, 255, 0.12) !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .content .btn.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .rows-step-btn.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .chart-range-btn.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .chart-type-btn.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .chart-refresh-btn.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .chart-currency-btn.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .font-color-btn.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .ticket-image-add.t-button {
+  background: #252d39 !important;
+  border-color: #394455 !important;
+  color: #d6deeb !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .content .btn.btn-primary.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .chart-range-btn.active.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .chart-type-btn.active.t-button,
+[data-theme="dark"] .tdesign-manager-shell .content .chart-currency-btn.active.t-button {
+  background: #2667ff !important;
+  border-color: #2667ff !important;
+  color: #fff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell #view-prices .card {
+  background: #202632 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .card-header,
+[data-theme="dark"] .tdesign-manager-shell .preview-header {
+  border-bottom-color: #313a49 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .card-header h2,
+[data-theme="dark"] .tdesign-manager-shell .price-card-name,
+[data-theme="dark"] .tdesign-manager-shell .section-title,
+[data-theme="dark"] .tdesign-manager-shell .switch-label {
+  color: #eef3fb !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .fetch-rate-hint,
+[data-theme="dark"] .tdesign-manager-shell .text-secondary,
+[data-theme="dark"] .tdesign-manager-shell .preview-title,
+[data-theme="dark"] .tdesign-manager-shell .preview-name,
+[data-theme="dark"] .tdesign-manager-shell .preview-currency {
+  color: #98a5b9 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .rows-stepper,
+[data-theme="dark"] .tdesign-manager-shell .badge-primary,
+[data-theme="dark"] .tdesign-manager-shell .btn.btn-secondary.btn-small {
+  background: #252d39 !important;
+  border-color: #394455 !important;
+  color: #dce4f2 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card {
+  background: #161b23 !important;
+  border-color: #313a49 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card:hover {
+  background: #1b212b !important;
+  border-color: #43506a !important;
+  box-shadow: none !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card.selected {
+  background: linear-gradient(180deg, rgba(28, 37, 51, 0.98), rgba(24, 32, 45, 0.98)) !important;
+  border-color: rgba(84, 116, 176, 0.72) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(84, 116, 176, 0.16),
+    0 10px 22px rgba(0, 0, 0, 0.22) !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card:hover::after {
+  border-color: rgba(84, 116, 176, 0.14);
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card.selected::after {
+  border-color: rgba(84, 116, 176, 0.22);
+  background:
+    linear-gradient(90deg, rgba(84, 116, 176, 0.09) 0, rgba(84, 116, 176, 0.035) 60px, transparent 104px);
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card-name {
+  color: #eef3fb !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card-value {
+  color: #8eb7ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-card-currency {
+  color: #98a5b9 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-checkbox {
+  background: #161b23 !important;
+  border-color: #556176 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-checkbox:hover {
+  border-color: #7aa3ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .price-checkbox:checked {
+  background: #2667ff !important;
+  border-color: #2667ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .bubble-preview-content {
+  background: #171c24 !important;
+  border-color: #313a49 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .preview-value {
+  color: #dfe7f5 !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .preview-separator {
+  background: #2f3948 !important;
+}

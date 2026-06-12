@@ -4,9 +4,9 @@
 
 /* ===== CSS Variables ===== */
 :root {
-  --bubble-bg: rgba(255, 255, 255, 0.95);
-  --bubble-text: #1d1d1f;
-  --bubble-text-secondary: #86868b;
+  --bubble-bg: rgba(247, 250, 255, 0.96);
+  --bubble-text: #18202c;
+  --bubble-text-secondary: #5f6b7d;
   --bubble-font-color: ;
   --bubble-border: rgba(0, 0, 0, 0.1);
   --bubble-shadow:
@@ -40,9 +40,9 @@
 
 /* Dark Theme */
 [data-theme="dark"] {
-  --bubble-bg: rgba(44, 44, 46, 0.95);
-  --bubble-text: #f5f5f7;
-  --bubble-text-secondary: #98989d;
+  --bubble-bg: rgba(24, 28, 35, 0.96);
+  --bubble-text: #eef3fb;
+  --bubble-text-secondary: #a6b1c2;
   --bubble-border: rgba(255, 255, 255, 0.1);
   --bubble-shadow:
     0 0.24em 0.5em rgba(0, 0, 0, 0.28),
@@ -62,36 +62,19 @@
 
 /* Theme Colors - 更明显的主题差异 */
 [data-theme-color="blue"] {
-  --accent-color: #0071e3;
-  --bubble-bg: rgba(30, 58, 138, 0.95);
-  --bubble-border: rgba(96, 165, 250, 0.3);
+  --accent-color: #0052d9;
+  --bubble-bg: rgba(214, 228, 251, 0.96);
+  --bubble-border: rgba(0, 82, 217, 0.18);
 }
 
 [data-theme="light"][data-theme-color="blue"] {
-  --bubble-bg: rgba(219, 234, 254, 0.95);
-  --bubble-border: rgba(59, 130, 246, 0.3);
+  --bubble-bg: rgba(214, 228, 251, 0.96);
+  --bubble-border: rgba(0, 82, 217, 0.18);
 }
 
-[data-theme-color="purple"] {
-  --accent-color: #a855f7;
-  --bubble-bg: rgba(88, 28, 135, 0.95);
-  --bubble-border: rgba(192, 132, 252, 0.3);
-}
-
-[data-theme="light"][data-theme-color="purple"] {
-  --bubble-bg: rgba(243, 232, 255, 0.95);
-  --bubble-border: rgba(168, 85, 247, 0.3);
-}
-
-[data-theme-color="green"] {
-  --accent-color: #10b981;
-  --bubble-bg: rgba(6, 78, 59, 0.95);
-  --bubble-border: rgba(52, 211, 153, 0.3);
-}
-
-[data-theme="light"][data-theme-color="green"] {
-  --bubble-bg: rgba(209, 250, 229, 0.95);
-  --bubble-border: rgba(16, 185, 129, 0.3);
+[data-theme="dark"][data-theme-color="blue"] {
+  --bubble-bg: rgba(24, 28, 35, 0.96);
+  --bubble-border: rgba(92, 140, 255, 0.22);
 }
 
 /* ===== Base ===== */
@@ -160,7 +143,7 @@ body::-webkit-scrollbar {
   background: var(--bubble-bg);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--bubble-border);
+  border: 1px solid transparent;
   border-radius: var(--bubble-radius);
   box-shadow: var(--bubble-shadow);
   padding: var(--bubble-padding);
@@ -184,7 +167,7 @@ body::-webkit-scrollbar {
 }
 
 .bubble:hover {
-  border-color: transparent;
+  border-color: var(--bubble-border);
   box-shadow: var(--bubble-shadow-hover);
   transform: none;
 }
@@ -192,7 +175,7 @@ body::-webkit-scrollbar {
 .bubble.dragging {
   opacity: 1;
   cursor: grabbing;
-  border-color: transparent;
+  border-color: var(--bubble-border);
   box-shadow: var(--bubble-shadow-hover);
   transform: none;
 }
@@ -282,25 +265,25 @@ body::-webkit-scrollbar {
   padding: 4px 8px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
 }
 
 .bubble.minimal .line {
-  justify-content: center;
+  justify-content: flex-end;
   padding: 1px 2px;
   gap: 4px;
-  width: max-content;
+  width: 100%;
   max-width: none;
-  text-align: center;
+  text-align: right;
 }
 
 .bubble.minimal .pnl-line {
-  justify-content: center;
+  justify-content: flex-end;
   padding: 1px 2px;
   gap: 4px;
-  width: max-content;
+  width: 100%;
   max-width: none;
-  text-align: center;
+  text-align: right;
 }
 
 .bubble.minimal .line-name {
@@ -316,9 +299,11 @@ body::-webkit-scrollbar {
   font-weight: 600;
   letter-spacing: 0.3px;
   display: inline-block;
+  min-width: 88px;
   white-space: nowrap;
   overflow: visible;
   padding-inline: 1px;
+  text-align: right;
 }
 
 .bubble.minimal .line-currency {

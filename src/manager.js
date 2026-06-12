@@ -6,6 +6,7 @@ const _cleanupFns = [];
 const _managedIntervals = new Map();
 const _managedTimeouts = new Map();
 const _singletonFlags = new Set();
+const ALLOWED_THEME_COLORS = new Set(['blue']);
 let _isPageUnloading = false;
 let _managerInitStarted = false;
 let _managerAsyncStarted = false;
@@ -109,7 +110,7 @@ window.addEventListener('beforeunload', () => {
 // 等待 Tauri API 加载
 function waitForTauri(callback) {
   if (window.__TAURI__) {
-    callback();
+    setTimeout(callback, 0);
   } else {
     setTimeout(() => waitForTauri(callback), 50);
   }
@@ -158,7 +159,6 @@ const state = {
   bubbleFontSize: 12,
   bubbleFontColor: 'black',
   bubbleOpacity: 100,
-  taskbarDisplayExperimental: false,
   showPnl: false,
   selectedPnlWarehouses: [],
   refreshInterval: 5000,
@@ -254,7 +254,6 @@ function _getBubbleConfigSummary() {
     showPnl: !!state.showPnl,
     bubbleStealth: !!state.bubbleStealth,
     bubbleMinimal: !!state.bubbleMinimal,
-    taskbarDisplayExperimental: !!state.taskbarDisplayExperimental,
     bubbleTheme: state.bubbleTheme,
     bubbleOpacity: state.bubbleOpacity,
   };
@@ -402,77 +401,21 @@ function loadState() {
     }
     
     state.bubbleRows = parseInt(localStorage.getItem('bubbleRows') || '2');
-    state.bubbleStealth = localStorage.getItem('bubbleStealth') === 'true';
+    state.bubbleStealth = false;
     state.bubbleMinimal = localStorage.getItem('bubbleMinimal') === 'true';
     state.bubbleTheme = localStorage.getItem('bubbleTheme') || 'light';
-    state.bubbleThemeColor = localStorage.getItem('bubbleThemeColor') || 'blue';
+    const savedThemeColor = localStorage.getItem('bubbleThemeColor') || 'blue';
+    state.bubbleThemeColor = ALLOWED_THEME_COLORS.has(savedThemeColor) ? savedThemeColor : 'blue';
     state.bubbleFontSize = parseInt(localStorage.getItem('bubbleFontSize') || '12');
     state.bubbleFontColor = localStorage.getItem('bubbleFontColor') || 'black';
     state.bubbleOpacity = parseInt(localStorage.getItem('bubbleOpacity') || '100');
-    state.taskbarDisplayExperimental = localStorage.getItem('taskbarDisplayExperimental') === 'true';
     state.showPnl = localStorage.getItem('showPnl') === 'true';
     state.selectedPnlWarehouses = JSON.parse(localStorage.getItem('pnl_selected_warehouses') || '[]');
     state.serverUrl = normalizeServerUrl(localStorage.getItem('serverUrl') || (typeof SERVER_URL !== 'undefined' ? SERVER_URL : ''));
     localStorage.setItem('serverUrl', state.serverUrl);
+    localStorage.setItem('bubbleThemeColor', state.bubbleThemeColor);
+    localStorage.removeItem('bubbleStealth');
     _normalizeSelectedCodes();
-  } catch (_) {
-  }
-}
-
-function _buildTaskbarDisplayPayload() {
-  const selectedPrices = state.prices.filter(p => state.selectedCodes.includes(p.code));
-  const items = selectedPrices.map((price) => {
-    const displayName = getDisplayName(price.code, price.name);
-    const shortName = displayName.length > 4 ? displayName.substring(0, 4) : displayName;
-    return {
-      label: shortName,
-      value_text: fmt(price.value, 2),
-      unit: getCurrency(price.code),
-      trend: 'flat',
-    };
-  });
-  return {
-    items,
-    font_size: state.bubbleFontSize,
-    font_color: state.bubbleFontColor,
-    theme: state.bubbleTheme,
-    theme_color: state.bubbleThemeColor || 'blue',
-  };
-}
-
-async function _syncDisplayMode() {
-  if (!invoke) return;
-  try {
-    if (state.taskbarDisplayExperimental) {
-      await invoke('hide_bubble');
-      const payload = _buildTaskbarDisplayPayload();
-      if (payload.items.length > 0) {
-        await invoke('show_taskbar_window', { payload });
-      } else {
-        await invoke('hide_taskbar_window');
-      }
-      return;
-    }
-    await invoke('hide_taskbar_window');
-    if (state.selectedCodes.length > 0) {
-      await invoke('show_bubble');
-      await invoke('refresh_bubble');
-    } else {
-      await invoke('hide_bubble');
-    }
-  } catch (_) {
-  }
-}
-
-async function _syncTaskbarDisplayIfNeeded() {
-  if (!state.taskbarDisplayExperimental || !invoke) return;
-  try {
-    const payload = _buildTaskbarDisplayPayload();
-    if (payload.items.length > 0) {
-      await invoke('update_taskbar_window', { payload });
-    } else {
-      await invoke('hide_taskbar_window');
-    }
   } catch (_) {
   }
 }
@@ -481,14 +424,13 @@ async function saveState() {
   try {
     localStorage.setItem('selectedCodes', JSON.stringify(state.selectedCodes));
     localStorage.setItem('bubbleRows', state.bubbleRows.toString());
-    localStorage.setItem('bubbleStealth', state.bubbleStealth.toString());
+    localStorage.removeItem('bubbleStealth');
     localStorage.setItem('bubbleMinimal', state.bubbleMinimal.toString());
     localStorage.setItem('bubbleTheme', state.bubbleTheme);
     localStorage.setItem('bubbleThemeColor', state.bubbleThemeColor);
     localStorage.setItem('bubbleFontSize', state.bubbleFontSize.toString());
     localStorage.setItem('bubbleFontColor', state.bubbleFontColor);
     localStorage.setItem('bubbleOpacity', state.bubbleOpacity.toString());
-    localStorage.setItem('taskbarDisplayExperimental', state.taskbarDisplayExperimental.toString());
     localStorage.setItem('showPnl', state.showPnl.toString());
     localStorage.setItem('pnl_selected_warehouses', JSON.stringify(state.selectedPnlWarehouses));
     localStorage.setItem('serverUrl', state.serverUrl);
@@ -511,7 +453,6 @@ async function saveState() {
       await invoke('notify_bubble', { message: 'config-update' });
     } catch (_) {
     }
-    await _syncDisplayMode();
   } catch (_) {
   }
 }
@@ -642,7 +583,6 @@ function _processPriceSnapshot(prices, rawMessage) {
   _setConnectionOnline(true, 'snapshot_received');
   updatePnlSummary();
   renderPreview();
-  _syncTaskbarDisplayIfNeeded();
 }
 
 function _processQueuedSsePayload() {
@@ -888,7 +828,6 @@ async function fetchPrices() {
       state.prices = partial;
       updatePriceValues(partial);
       _setConnectionOnline(true, 'manual_partial_prices');
-      _syncTaskbarDisplayIfNeeded();
     });
 
     if (prices.length === 0) {
@@ -931,8 +870,6 @@ async function fetchPrices() {
         window.warehouseModule.updateWarehouseRealTimeData();
       }
     }
-
-    _syncTaskbarDisplayIfNeeded();
 
     return prices;
   } catch (_) {
@@ -1170,9 +1107,7 @@ function togglePriceSelection(code) {
   renderPreview();
 
   const nowEmpty = state.selectedCodes.length === 0;
-  if (state.taskbarDisplayExperimental) {
-    _syncTaskbarDisplayIfNeeded();
-  } else if (nowEmpty && !prevEmpty) {
+  if (nowEmpty && !prevEmpty) {
     appLog('info', 'manager', 'hide_bubble_requested', 'bubble hide requested from price selection', {
       reason: 'selection_became_empty',
       selectedCodes: state.selectedCodes.slice(),
@@ -1235,15 +1170,11 @@ function setupPriceSelectionInteractions() {
 function deselectAll() {
   if (state.selectedCodes.length === 0) return;
   state.selectedCodes = [];
-  if (!state.taskbarDisplayExperimental) {
-    appLog('info', 'manager', 'hide_bubble_requested', 'bubble hide requested from deselect all', {
-      reason: 'deselect_all',
-      selectedCodes: [],
-    });
-    invoke('hide_bubble').catch(() => {});
-  } else {
-    invoke('hide_taskbar_window').catch(() => {});
-  }
+  appLog('info', 'manager', 'hide_bubble_requested', 'bubble hide requested from deselect all', {
+    reason: 'deselect_all',
+    selectedCodes: [],
+  });
+  invoke('hide_bubble').catch(() => {});
   saveState();
   syncCardsUI();
   renderPreview();
@@ -1256,16 +1187,25 @@ function renderWarehousePnlList() {
 
   const warehouses = loadWarehouses();
   const items = [{ id: '__total__', name: '总仓营收' }, ...warehouses.map(w => ({ id: w.id, name: w.name }))];
+  const selectedCount = state.selectedPnlWarehouses.length;
 
   container.innerHTML = `
-    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">选择要在气泡中显示盈亏的仓库</p>
-    <div class="pnl-chip-list">
+    <div class="pnl-warehouse-head">
+      <p class="pnl-warehouse-hint">选择要在气泡中显示盈亏的仓库</p>
+      <span class="pnl-warehouse-count">已选 ${selectedCount}</span>
+    </div>
+    <div class="pnl-warehouse-list" role="group" aria-label="气泡显示仓库盈亏">
       ${items.map(item => `
-        <button class="pnl-chip ${state.selectedPnlWarehouses.includes(item.id) ? 'active' : ''}"
-                onclick="togglePnlWarehouse('${item.id}')"
-                style="-webkit-app-region:no-drag;pointer-events:auto;">
-          ${item.name}
-        </button>
+        <label class="pnl-warehouse-option ${state.selectedPnlWarehouses.includes(item.id) ? 'active' : ''}"
+               style="-webkit-app-region:no-drag;pointer-events:auto;">
+          <input
+            class="pnl-warehouse-checkbox"
+            type="checkbox"
+            ${state.selectedPnlWarehouses.includes(item.id) ? 'checked' : ''}
+            onchange="togglePnlWarehouse('${item.id}')"
+          />
+          <span class="pnl-warehouse-option-label">${item.name}</span>
+        </label>
       `).join('')}
     </div>
   `;
@@ -1335,6 +1275,10 @@ function setupBubbleSettings() {
   }
 
   const fontColorBtns = document.getElementById('font-color-btns');
+  const fontColorRow = document.querySelector('.form-row-font-color');
+  const updateFontColorVisibility = () => {
+    if (fontColorRow) fontColorRow.style.display = state.bubbleMinimal ? '' : 'none';
+  };
   if (fontColorBtns) {
     function _updateFontColorBtns(val) {
       fontColorBtns.querySelectorAll('.font-color-btn').forEach(btn => {
@@ -1351,6 +1295,7 @@ function setupBubbleSettings() {
       });
     });
   }
+  updateFontColorVisibility();
 
   // 气泡行数步进器（价格选择页）
   const stepVal = document.getElementById('rows-step-value');
@@ -1381,66 +1326,33 @@ function setupBubbleSettings() {
   // 主题配色
   const themeColorSelect = document.getElementById('theme-color-select');
   if (themeColorSelect) {
-    themeColorSelect.value = state.bubbleThemeColor;
+    themeColorSelect.value = state.bubbleTheme === 'dark' ? 'dark' : 'classic';
     themeColorSelect.addEventListener('change', (e) => {
-      state.bubbleThemeColor = e.target.value;
+      const selectedTheme = e.target.value === 'dark' ? 'dark' : 'light';
+      state.bubbleTheme = selectedTheme;
+      state.bubbleThemeColor = 'blue';
+      document.body.setAttribute('data-theme', state.bubbleTheme);
       document.body.setAttribute('data-theme-color', state.bubbleThemeColor);
       saveState();
+      setupTheme();
       renderPreview();
+      if (window.chartModule) window.chartModule.onThemeChange();
     });
   }
 
-  // 隐身模式（摸鱼模式）
-  const stealthCheckbox = document.getElementById('bubble-stealth');
+  // 摸鱼模式（仅数字+边框）
   const minimalCheckbox = document.getElementById('bubble-minimal');
-  const taskbarExperimentalCheckbox = document.getElementById('taskbar-display-experimental');
-  function _syncDisplayModeInputs() {
-    if (stealthCheckbox) stealthCheckbox.disabled = !!state.taskbarDisplayExperimental;
-    if (minimalCheckbox) minimalCheckbox.disabled = !!state.taskbarDisplayExperimental;
-  }
-  if (stealthCheckbox) {
-    stealthCheckbox.checked = state.bubbleStealth;
-    stealthCheckbox.addEventListener('change', (e) => {
-      state.bubbleStealth = e.target.checked;
-      // 摸鱼模式和0存在感模式互斥
-      if (e.target.checked) {
-        state.bubbleMinimal = false;
-        const minimalCheckbox = document.getElementById('bubble-minimal');
-        if (minimalCheckbox) minimalCheckbox.checked = false;
-      }
-      saveState();
-      renderPreview();
-    });
-  }
-
-  // 0存在感模式
+  
   if (minimalCheckbox) {
     minimalCheckbox.checked = state.bubbleMinimal;
     
     minimalCheckbox.addEventListener('change', (e) => {
       state.bubbleMinimal = e.target.checked;
-      // 0存在感模式和摸鱼模式互斥
-      if (e.target.checked) {
-        state.bubbleStealth = false;
-        const stealthCheckbox = document.getElementById('bubble-stealth');
-        if (stealthCheckbox) stealthCheckbox.checked = false;
-      }
-      
+      updateFontColorVisibility();
       saveState();
       renderPreview();
     });
   }
-
-  if (taskbarExperimentalCheckbox) {
-    taskbarExperimentalCheckbox.checked = state.taskbarDisplayExperimental;
-    taskbarExperimentalCheckbox.addEventListener('change', (e) => {
-      state.taskbarDisplayExperimental = e.target.checked;
-      saveState();
-      renderPreview();
-      _syncDisplayModeInputs();
-    });
-  }
-  _syncDisplayModeInputs();
 
   // 显示盈亏
   const pnlCheckbox = document.getElementById('show-pnl');
@@ -2211,7 +2123,6 @@ function renderPreview() {
 
   // 构建预览内容，模拟真实气泡样式
   let previewClass = '';
-  if (state.bubbleStealth) previewClass = 'stealth';
   if (state.bubbleMinimal) previewClass = 'minimal';
   const themeColor = state.bubbleThemeColor || 'blue';
   
@@ -2221,7 +2132,7 @@ function renderPreview() {
   preview.style.fontSize = state.bubbleFontSize + 'px';
   preview.style.opacity = state.bubbleOpacity / 100;
   const _colorMap = { white: '#ffffff', black: '#000000', default: '' };
-  preview.style.color = _colorMap[state.bubbleFontColor] || '';
+  preview.style.color = state.bubbleMinimal ? (_colorMap[state.bubbleFontColor] || '') : '';
   
   preview.innerHTML = `
     <div class="preview-header">
@@ -2230,21 +2141,19 @@ function renderPreview() {
     </div>
     ${selectedPrices.map(price => {
       const displayName = getDisplayName(price.code, price.name);
-      const shortName = displayName.length > 6 ? displayName.substring(0, 6) : displayName;
       return `
         <div class="preview-line">
-          <span class="preview-name">${shortName}</span>
-          <span class="preview-value">${fmt(price.value, 5)} ${getCurrency(price.code)}</span>
+          <span class="preview-name">${displayName}</span>
+          <span class="preview-value">${fmt(price.value, 2)} ${getCurrency(price.code)}</span>
         </div>
       `;
     }).join('')}
     ${selectedPnls.length > 0 ? `
       <div class="preview-separator"></div>
       ${selectedPnls.map(item => {
-        const shortName = item.name.length > 6 ? item.name.substring(0, 6) : item.name;
         return `
           <div class="preview-line pnl ${item.pnl >= 0 ? 'profit' : 'loss'}">
-            <span class="preview-name">${shortName}</span>
+            <span class="preview-name">${item.name}</span>
             <span class="preview-value">${item.pnl >= 0 ? '+' : ''}${fmt(item.pnl, 2)} ${item.currency || '￥'}</span>
           </div>
         `;
@@ -2752,19 +2661,40 @@ async function init() {
 
   // 自定义窗口控制按钮（无系统标题栏）
   const _appWin = window.__TAURI__?.window?.getCurrent?.();
+  const _setWcMaxIcon = (maximized) => {
+    const wcMaxBtn = document.getElementById('wc-max');
+    if (!wcMaxBtn) return;
+    wcMaxBtn.innerHTML = maximized
+      ? '<svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M6.2 4.2h7.6v7.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><path d="M11.8 13.8H4.2V6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><path d="M13.8 4.2L8.4 9.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>'
+      : '<svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="4.2" y="4.2" width="9.6" height="9.6" rx="1.4" stroke="currentColor" stroke-width="1.6"></rect></svg>';
+    wcMaxBtn.title = maximized ? '还原' : '最大化';
+    wcMaxBtn.setAttribute('aria-label', maximized ? '还原' : '最大化');
+  };
   document.getElementById('wc-min')?.addEventListener('click', () => _appWin?.minimize());
   document.getElementById('wc-close')?.addEventListener('click', () => _appWin?.hide());
   const wcMax = document.getElementById('wc-max');
   if (wcMax && _appWin) {
+    _appWin.isMaximized().then(_setWcMaxIcon).catch(() => {});
     wcMax.addEventListener('click', async () => {
       const isMax = await _appWin.isMaximized().catch(() => false);
-      if (isMax) { _appWin.unmaximize(); wcMax.innerHTML = '&#9633;'; wcMax.title = '最大化'; }
-      else        { _appWin.maximize();   wcMax.innerHTML = '&#10064;'; wcMax.title = '还原'; }
+      if (isMax) {
+        _appWin.unmaximize();
+        _setWcMaxIcon(false);
+      } else {
+        _appWin.maximize();
+        _setWcMaxIcon(true);
+      }
     });
   }
 
   // 初始化 DataSource（同步，不阻塞）
   DataSource.init(httpFetch, state.serverUrl);
+  DataSource.ensureFieldMap().then(() => {
+    if (window.warehouseModule) {
+      window.warehouseModule.renderWarehouseList();
+    }
+    renderWarehousePnlList();
+  }).catch(() => {});
   _cleanupUpdateDownloads(localStorage.getItem('pendingUpdatePath') || '');
 
   // ── 第一步：立即完成所有同步 UI 初始化，保证交互可用 ──
@@ -2950,7 +2880,6 @@ async function _initAsync() {
 
   setupAppSettings();
   renderPreview();
-  _syncDisplayMode();
 
   sessionStorage.removeItem('eulaJustAccepted');
   await _fetchFieldMap({ force: true });
