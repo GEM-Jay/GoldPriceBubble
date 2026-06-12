@@ -65,6 +65,13 @@ venv/
 *.whl
 
 # ------------------------
+# Server
+# ------------------------
+server/downloads/
+server/goldprice-server
+server/goldprice-server.exe
+
+# ------------------------
 # 系统文件
 # ------------------------
 .DS_Store

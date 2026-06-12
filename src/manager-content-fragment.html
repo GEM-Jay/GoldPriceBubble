@@ -1,0 +1,296 @@
+<main class="content">
+          <!-- ===== Price Selection View ===== -->
+          <section id="view-prices" class="view active">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title-block">
+                  <h2>实时金价 <span class="card-title-spark" aria-hidden="true">✦</span></h2>
+                  <div class="fetch-rate-hint">每 <span id="fetch-rate-sec">5</span> 秒自动抓取一次实时数据</div>
+                </div>
+                <div class="card-header-right">
+                  <div class="rows-stepper">
+                    <span class="rows-stepper-label">气泡上限</span>
+                    <button class="rows-step-btn" id="rows-step-down">−</button>
+                    <span class="rows-step-val" id="rows-step-value">2</span>
+                    <button class="rows-step-btn" id="rows-step-up">+</button>
+                  </div>
+                  <span class="badge badge-primary">
+                    已选 <span id="selected-count">0</span> / <span id="rows-limit">2</span>
+                  </span>
+                  <button id="deselect-all-btn" class="btn btn-secondary btn-small">清空选择</button>
+                </div>
+              </div>
+
+              <div id="price-select-list" class="price-select-list">
+                <!-- Dynamically generated price list -->
+              </div>
+            </div>
+          </section>
+
+          <!-- ===== Warehouse Management View ===== -->
+          <section id="view-store" class="view">
+            <div class="card">
+              <div class="card-header">
+                <div id="pnl-summary" class="pnl-summary pnl-summary-cards"></div>
+              </div>
+
+              <div class="store-layout">
+                <div class="store-list">
+                  <ul id="warehouse-list">
+                    <!-- Dynamically generated warehouse list -->
+                  </ul>
+                </div>
+                <div class="store-detail" id="warehouse-detail">
+                  <div class="empty-state">
+                    <div class="empty-state-icon">🏦</div>
+                    <div class="empty-state-text">选择或新建仓库</div>
+                    <div class="empty-state-hint">点击左侧列表查看仓库详情</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ===== Chart View ===== -->
+          <section id="view-chart" class="view chart-view">
+            <div class="chart-header">
+              <div class="chart-hero">
+                <div class="chart-hero-label">
+                  <span class="chart-commodity-name" id="chart-commodity-name">黄金延期</span>
+                  <div class="chart-currency-toggle">
+                  <button class="chart-currency-btn active" data-currency="cny">CNY</button>
+                  <button class="chart-currency-btn" data-currency="usd">USD</button>
+                  </div>
+                </div>
+                <div id="chart-price-display" class="chart-price-display">—</div>
+                <div id="chart-change-display" class="chart-change-display"></div>
+              </div>
+              <div class="chart-meta-right">
+                <div class="chart-mini-stats" id="chart-mini-stats"></div>
+                <div class="chart-toolbar">
+                  <div class="chart-type-btns">
+                    <button class="chart-type-btn active" data-type="line" title="线图">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="1,11 5,5 8,8 13,2" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+                    </button>
+                    <button class="chart-type-btn" data-type="candle" title="K线">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <line x1="3" y1="1" x2="3" y2="3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        <rect x="1.5" y="3" width="3" height="5" rx=".5" stroke="currentColor" stroke-width="1.2" fill="none"/>
+                        <line x1="3" y1="8" x2="3" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        <line x1="9" y1="3" x2="9" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        <rect x="7.5" y="5" width="3" height="4" rx=".5" fill="currentColor"/>
+                        <line x1="9" y1="9" x2="9" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="chart-range-btns">
+                    <button class="chart-range-btn active" data-range="0">今日</button>
+                    <button class="chart-range-btn" data-range="7">近7日</button>
+                    <button class="chart-range-btn" data-range="30">近1月</button>
+                    <button class="chart-range-btn" data-range="365">近1年</button>
+                    <button class="chart-range-btn" data-range="1095">近3年</button>
+                    <button class="chart-range-btn" data-range="1825">近5年</button>
+                    <button class="chart-refresh-btn" id="chart-refresh-btn" title="刷新数据">⟳</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="gold-chart" class="gold-chart-container"></div>
+          </section>
+
+          <!-- ===== Bubble Style View ===== -->
+          <section id="view-bubble-style" class="view">
+            <div class="card">
+
+              <div class="style-panel">
+                <h3 class="section-title">外观设置</h3>
+
+                <div class="form-row">
+                  <label>主题配色</label>
+                  <select id="theme-color-select">
+                    <option value="classic">经典主题</option>
+                    <option value="dark">暗黑主题</option>
+                  </select>
+                </div>
+
+                <div class="form-row form-row-font">
+                  <label>字体大小 <span id="font-size-value">12</span>px</label>
+                  <div class="font-tube" id="font-tube" style="-webkit-app-region: no-drag; pointer-events: auto;">
+                    <div class="font-tube-cell" data-val="10"><span class="font-tube-tick">极小</span></div>
+                    <div class="font-tube-cell" data-val="11"><span class="font-tube-tick">小</span></div>
+                    <div class="font-tube-cell" data-val="12"><span class="font-tube-tick">中</span></div>
+                    <div class="font-tube-cell" data-val="13"><span class="font-tube-tick">大</span></div>
+                    <div class="font-tube-cell" data-val="15"><span class="font-tube-tick">极大</span></div>
+                  </div>
+                </div>
+
+                <div class="switch-row">
+                  <span class="switch-label">摸鱼模式（仅数字+边框）</span>
+                  <label class="switch">
+                    <input type="checkbox" id="bubble-minimal" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <div class="form-row form-row-font-color">
+                  <label>字体颜色</label>
+                  <div class="font-color-btns" id="font-color-btns" style="-webkit-app-region: no-drag; pointer-events: auto;">
+                    <button class="font-color-btn" data-color="white" title="白色">白色</button>
+                    <button class="font-color-btn" data-color="black" title="黑色">黑色</button>
+                  </div>
+                </div>
+
+
+                <div class="switch-row">
+                  <span class="switch-label">气泡显示仓库盈亏</span>
+                  <label class="switch">
+                    <input type="checkbox" id="show-pnl" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <div id="pnl-warehouse-select" style="display: none; margin-top: 10px;">
+                  <!-- 动态生成 chip 列表 -->
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ===== Settings View ===== -->
+          <section id="view-settings" class="view">
+            <div class="card">
+              <div class="settings-layout">
+                <div class="style-panel settings-panel settings-panel-status">
+                  <div class="settings-panel-head">
+                    <div>
+                      <h3 class="section-title">更新与状态</h3>
+                      <p class="settings-panel-hint">检查版本状态，确认当前软件与安装信息。</p>
+                    </div>
+                  </div>
+                  <div class="settings-status-grid">
+                    <div class="settings-stat-card">
+                      <span class="settings-stat-label">当前版本</span>
+                      <strong class="settings-stat-value">GoldPrice <span id="app-version"></span></strong>
+                    </div>
+                    <div class="settings-stat-card settings-stat-card-id">
+                      <span class="settings-stat-label">软件 ID</span>
+                      <strong class="settings-stat-value settings-stat-value-id" id="app-install-id">—</strong>
+                    </div>
+                  </div>
+                  <div class="settings-update-row">
+                    <span class="btn-badge-wrap">
+                      <button id="check-update-btn" class="btn btn-secondary btn-small settings-update-btn">检查更新</button>
+                      <span id="app-update-dot-settings" class="update-dot" style="display:none;"></span>
+                    </span>
+                    <span id="check-update-result" class="text-secondary settings-inline-result"></span>
+                  </div>
+                </div>
+
+                <div class="style-panel settings-panel">
+                  <div class="settings-panel-head">
+                    <div>
+                      <h3 class="section-title">常规设置</h3>
+                      <p class="settings-panel-hint">与启动和日常使用相关的基础选项。</p>
+                    </div>
+                  </div>
+                  <div class="switch-row">
+                    <span class="switch-label">开机自动启动</span>
+                    <label class="switch">
+                      <input type="checkbox" id="auto-start" />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="style-panel settings-panel">
+                  <div class="settings-panel-head">
+                    <div>
+                      <h3 class="section-title">数据管理</h3>
+                      <p class="settings-panel-hint">导出、导入或重置本地配置与仓库数据。</p>
+                    </div>
+                  </div>
+                  <div class="settings-action-grid">
+                    <button id="export-data-btn" class="btn btn-secondary settings-action-btn">导出配置</button>
+                    <button id="import-data-btn" class="btn btn-secondary settings-action-btn">导入配置</button>
+                    <button id="reset-data-btn" class="btn btn-secondary settings-action-btn">重置所有数据</button>
+                  </div>
+                </div>
+
+                <div class="style-panel settings-panel">
+                  <div class="settings-panel-head">
+                    <div>
+                      <h3 class="section-title">工单支持</h3>
+                      <p class="settings-panel-hint">提交问题、上传截图，并查看历史工单回复。</p>
+                    </div>
+                  </div>
+                  <div class="ticket-compose">
+                    <div class="form-row">
+                      <label for="ticket-title">标题</label>
+                      <input id="ticket-title" type="text" maxlength="80" placeholder="例如：启动后一直显示数据抓取中" />
+                    </div>
+                    <div class="form-row">
+                      <label for="ticket-email">联系方式</label>
+                      <input id="ticket-email" type="email" maxlength="120" placeholder="name@example.com" />
+                    </div>
+                    <div class="form-row">
+                      <label for="ticket-content">工单内容</label>
+                      <textarea id="ticket-content" maxlength="400" placeholder="描述报错、复现步骤或建议内容，最多 400 字"></textarea>
+                      <div class="ticket-count-row">
+                        <span id="ticket-content-count">0 / 400</span>
+                      </div>
+                    </div>
+                    <div class="form-row">
+                      <label>图片附件</label>
+                      <div class="ticket-upload-block">
+                        <div id="ticket-image-list" class="ticket-image-list"></div>
+                        <button id="ticket-pick-images-btn" class="ticket-image-add" type="button" aria-label="添加图片">
+                          <span class="ticket-image-add-plus">+</span>
+                        </button>
+                        <input id="ticket-images-input" type="file" accept="image/png,image/jpeg,image/webp" multiple style="display:none;" />
+                        <div id="ticket-images-hint" class="text-secondary ticket-images-hint">最多 3 张，单张 1.5MB 以内，支持 JPG、PNG、WEBP</div>
+                      </div>
+                    </div>
+                    <div class="switch-row ticket-switch-row">
+                      <span class="switch-label">自动附带最近日志</span>
+                      <label class="switch">
+                        <input type="checkbox" id="ticket-include-logs" checked />
+                        <span class="slider"></span>
+                      </label>
+                    </div>
+                    <div class="ticket-action-row">
+                      <div id="ticket-submit-msg" class="text-secondary ticket-submit-msg"></div>
+                      <div class="ticket-action-buttons">
+                        <button id="ticket-open-history-btn" class="btn btn-secondary ticket-history-btn" type="button">我的工单<span id="ticket-open-history-badge" class="ticket-btn-badge" style="display:none;">新消息</span></button>
+                        <button id="ticket-submit-btn" class="btn btn-primary" type="button">提交工单</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="style-panel settings-panel settings-panel-about">
+                  <div class="settings-panel-head">
+                    <div>
+                      <h3 class="section-title">关于</h3>
+                      <p class="settings-panel-hint">软件说明与版权信息。</p>
+                    </div>
+                  </div>
+                  <p class="text-secondary settings-about-copy">
+                    <strong>GoldPrice</strong><br />
+                    实时黄金价格监控工具<br />
+                    © 2025 Lucas Lee. All rights reserved.
+                  </p>
+                </div>
+
+                <div class="style-panel settings-panel settings-panel-danger">
+                  <div class="settings-panel-head">
+                    <div>
+                      <h3 class="section-title">危险操作</h3>
+                      <p class="settings-panel-hint settings-panel-hint-danger">会清除所有本地数据并退出应用，请仅在需要完全重置时使用。</p>
+                    </div>
+                  </div>
+                  <button id="clear-and-quit-btn" class="btn settings-danger-btn">清除全部数据并退出</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>

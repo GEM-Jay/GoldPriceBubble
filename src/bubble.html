@@ -2,22 +2,22 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <title>GoldPrice 浮窗</title>
+    <title>.</title>
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="bubble.css" />
   </head>
-  <body data-theme="light" data-theme-color="blue">
-    <div class="bubble" id="bubble-root" data-opacity="1.0">
+  <body data-theme="light" data-theme-color="blue" data-tauri-drag-region>
+    <div class="bubble" id="bubble-root" data-opacity="1.0" data-tauri-drag-region>
       <div class="bubble-header" data-tauri-drag-region>
         <span class="title" data-tauri-drag-region>GOLDPRICE</span>
-        <span class="mode" id="bubble-mode" data-tauri-drag-region></span>
+        <div class="bubble-header-right" data-tauri-drag-region>
+          <span class="status-dot offline" id="bubble-status-dot" data-tauri-drag-region></span>
+        </div>
       </div>
-      <div class="bubble-lines" id="bubble-lines">
+      <div class="bubble-lines" id="bubble-lines" data-tauri-drag-region>
         <!-- Dynamically generated price lines -->
       </div>
     </div>
-    <script src="config.js"></script>
-    <script src="bubble.js"></script>
+    <script type="module" src="/bubble-app.js"></script>
   </body>
 </html>

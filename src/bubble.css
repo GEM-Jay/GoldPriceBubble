@@ -4,70 +4,77 @@
 
 /* ===== CSS Variables ===== */
 :root {
-  --bubble-bg: rgba(255, 255, 255, 0.95);
-  --bubble-text: #1d1d1f;
-  --bubble-text-secondary: #86868b;
+  --bubble-bg: rgba(247, 250, 255, 0.96);
+  --bubble-text: #18202c;
+  --bubble-text-secondary: #5f6b7d;
+  --bubble-font-color: ;
   --bubble-border: rgba(0, 0, 0, 0.1);
-  --bubble-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --bubble-shadow:
+    0 0.2em 0.5em rgba(15, 23, 42, 0.11),
+    0 0.05em 0.18em rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  --bubble-shadow-hover:
+    0 0.24em 0.5em rgba(15, 23, 42, 0.13),
+    0 0.06em 0.2em rgba(15, 23, 42, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  --bubble-shadow-active:
+    0 0.16em 0.42em rgba(15, 23, 42, 0.12),
+    0 0.04em 0.16em rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  --bubble-shadow-bleed: 0.5em;
   
   --bubble-radius: 16px;
-  --bubble-padding: 12px;
+  --bubble-padding: 10px ;
   
-  --price-up: #34c759;
-  --price-down: #ff3b30;
+  --price-up: #ff3b30;
+  --price-down: #34c759;
   
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Light Theme - 浅色主题使用更深的绿色 */
 [data-theme="light"] {
-  --price-up: #0d8944; /* 更深的绿色，在浅色背景下更明显 */
-  --price-down: #d41f14; /* 更深的红色 */
+  --price-up: #d41f14;
+  --price-down: #0d8944;
 }
 
 /* Dark Theme */
 [data-theme="dark"] {
-  --bubble-bg: rgba(44, 44, 46, 0.95);
-  --bubble-text: #f5f5f7;
-  --bubble-text-secondary: #98989d;
+  --bubble-bg: rgba(24, 28, 35, 0.96);
+  --bubble-text: #eef3fb;
+  --bubble-text-secondary: #a6b1c2;
   --bubble-border: rgba(255, 255, 255, 0.1);
-  --bubble-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --price-up: #34c759; /* 深色主题使用较亮的绿色 */
-  --price-down: #ff3b30; /* 深色主题使用较亮的红色 */
+  --bubble-shadow:
+    0 0.24em 0.5em rgba(0, 0, 0, 0.28),
+    0 0.06em 0.2em rgba(0, 0, 0, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --bubble-shadow-hover:
+    0 0.28em 0.5em rgba(0, 0, 0, 0.32),
+    0 0.08em 0.22em rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  --bubble-shadow-active:
+    0 0.18em 0.44em rgba(0, 0, 0, 0.30),
+    0 0.05em 0.18em rgba(0, 0, 0, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --price-up: #ff3b30;
+  --price-down: #34c759;
 }
 
 /* Theme Colors - 更明显的主题差异 */
 [data-theme-color="blue"] {
-  --accent-color: #0071e3;
-  --bubble-bg: rgba(30, 58, 138, 0.95);
-  --bubble-border: rgba(96, 165, 250, 0.3);
+  --accent-color: #0052d9;
+  --bubble-bg: rgba(214, 228, 251, 0.96);
+  --bubble-border: rgba(0, 82, 217, 0.18);
 }
 
 [data-theme="light"][data-theme-color="blue"] {
-  --bubble-bg: rgba(219, 234, 254, 0.95);
-  --bubble-border: rgba(59, 130, 246, 0.3);
+  --bubble-bg: rgba(214, 228, 251, 0.96);
+  --bubble-border: rgba(0, 82, 217, 0.18);
 }
 
-[data-theme-color="purple"] {
-  --accent-color: #a855f7;
-  --bubble-bg: rgba(88, 28, 135, 0.95);
-  --bubble-border: rgba(192, 132, 252, 0.3);
-}
-
-[data-theme="light"][data-theme-color="purple"] {
-  --bubble-bg: rgba(243, 232, 255, 0.95);
-  --bubble-border: rgba(168, 85, 247, 0.3);
-}
-
-[data-theme-color="green"] {
-  --accent-color: #10b981;
-  --bubble-bg: rgba(6, 78, 59, 0.95);
-  --bubble-border: rgba(52, 211, 153, 0.3);
-}
-
-[data-theme="light"][data-theme-color="green"] {
-  --bubble-bg: rgba(209, 250, 229, 0.95);
-  --bubble-border: rgba(16, 185, 129, 0.3);
+[data-theme="dark"][data-theme-color="blue"] {
+  --bubble-bg: rgba(24, 28, 35, 0.96);
+  --bubble-border: rgba(92, 140, 255, 0.22);
 }
 
 /* ===== Base ===== */
@@ -75,62 +82,102 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  border: none;
+  outline: none;
+}
+
+html {
+  background: transparent !important;
+  overflow: visible;
+  scrollbar-width: none;
+  border: none;
+  outline: none;
+  margin: 0;
+  padding: 0;
+}
+
+html::-webkit-scrollbar {
+  display: none;
 }
 
 body {
   margin: 0;
-  background: transparent;
+  padding: 0;
+  background: transparent !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, 'Microsoft YaHei', sans-serif;
   font-size: var(--gp-font-size-bubble, 12px);
   font-weight: var(--gp-font-weight-bubble, 400);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
+  overflow: visible;
+  scrollbar-width: none;
+  -webkit-app-region: drag;
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}
+
+/* 禁用所有元素作为链接的行为，防止 WebView2 显示状态栏 */
+* {
+  -webkit-user-drag: none;
+  pointer-events: auto;
+  -webkit-app-region: drag;
+}
+
+/* 确保拖拽区域不显示链接预览 */
+[data-tauri-drag-region] {
+  -webkit-user-drag: none;
+  user-select: none;
+  cursor: move !important;
+  border: none;
+  outline: none;
 }
 
 /* ===== Bubble Container ===== */
 .bubble {
-  width: 100%;
+  width: fit-content;
   min-height: 80px;
-  max-height: 100%;
-  height: 100%;
+  margin: var(--bubble-shadow-bleed);
   background: var(--bubble-bg);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--bubble-border);
+  border: 1px solid transparent;
   border-radius: var(--bubble-radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0);
+  box-shadow: var(--bubble-shadow);
   padding: var(--bubble-padding);
   color: var(--bubble-text);
   -webkit-app-region: drag;
   cursor: move;
   user-select: none;
-  transition: opacity 0.2s ease, box-shadow 0.2s ease;
-  animation: bubbleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform, opacity, box-shadow, background-color, border-color;
+  transition:
+    background-color 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 0.32s ease;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
 }
 
-@keyframes bubbleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
 .bubble:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  border-color: var(--bubble-border);
+  box-shadow: var(--bubble-shadow-hover);
+  transform: none;
 }
 
 .bubble.dragging {
-  opacity: 0.8;
+  opacity: 1;
   cursor: grabbing;
+  border-color: var(--bubble-border);
+  box-shadow: var(--bubble-shadow-hover);
+  transform: none;
 }
 
 /* Stealth/Moyu Mode - 摸鱼模式：半透明背景 */
@@ -138,12 +185,17 @@ body {
   background: rgba(255, 255, 255, 0.15) !important;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(0, 0, 0, 0.2);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: none !important;
 }
 
 [data-theme="dark"] .bubble.moyu {
   background: rgba(0, 0, 0, 0.25) !important;
   border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.bubble.moyu:hover,
+.bubble.moyu.dragging {
+  box-shadow: none !important;
 }
 
 .bubble.moyu .bubble-header,
@@ -162,6 +214,7 @@ body {
   border: none !important;
   border-radius: 0;
   padding: 0;
+  margin: 0;
   width: fit-content !important ;
   height: fit-content !important;
 }
@@ -204,31 +257,33 @@ body {
 }
 
 .bubble.minimal .bubble-header .title,
-.bubble.minimal .bubble-header .mode {
+.bubble.minimal .bubble-header .status-dot {
   display: none;
 }
 
 .bubble.minimal .bubble-lines {
-  padding: 4px;
+  padding: 4px 8px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
 }
 
 .bubble.minimal .line {
-  justify-content: center;
-  padding: 1px 0;
+  justify-content: flex-end;
+  padding: 1px 2px;
   gap: 4px;
   width: 100%;
-  text-align: center;
+  max-width: none;
+  text-align: right;
 }
 
 .bubble.minimal .pnl-line {
-  justify-content: center;
-  padding: 1px 0;
+  justify-content: flex-end;
+  padding: 1px 2px;
   gap: 4px;
   width: 100%;
-  text-align: center;
+  max-width: none;
+  text-align: right;
 }
 
 .bubble.minimal .line-name {
@@ -244,6 +299,11 @@ body {
   font-weight: 600;
   letter-spacing: 0.3px;
   display: inline-block;
+  min-width: 88px;
+  white-space: nowrap;
+  overflow: visible;
+  padding-inline: 1px;
+  text-align: right;
 }
 
 .bubble.minimal .line-currency {
@@ -261,9 +321,41 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--bubble-border);
+  transition:
+    opacity 0.24s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.28s ease,
+    border-color 0.28s ease,
+    margin 0.28s ease,
+    padding 0.28s ease;
+}
+
+.bubble-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  animation: bubbleStatusPulse 2s ease-in-out infinite;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.status-dot.online {
+  background: #22c55e;
+}
+
+@keyframes bubbleStatusPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
 }
 
 .title {
@@ -275,41 +367,19 @@ body {
   opacity: 0.7;
 }
 
-.mode {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #34c759; /* 绿色在线状态 */
-  flex-shrink: 0;
-  opacity: 1;
-  transition: var(--transition);
-  box-shadow: 0 0 6px rgba(52, 199, 89, 0.5); /* 柔和发光效果 */
-}
-
-.mode.up {
-  background: var(--price-up);
-  opacity: 1;
-}
-
-.mode.down {
-  background: var(--price-down);
-  opacity: 1;
-}
-
 /* ===== Lines ===== */
 .bubble-lines {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding-bottom: 2px;
-  min-height: 0;
+  overflow: visible;
+  padding-bottom: 0;
+  -webkit-app-region: drag;
+  transition: gap 0.28s ease, padding 0.28s ease, opacity 0.2s ease;
 }
 
 .bubble-lines::-webkit-scrollbar {
-  width: 4px;
+  display: none;
 }
 
 .bubble-lines::-webkit-scrollbar-track {
@@ -329,37 +399,50 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 20px;
   color: var(--bubble-text);
   padding: 3px 0;
+  -webkit-app-region: drag;
+  border-radius: 6px;
+  transition:
+    color 0.24s ease,
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.28s ease,
+    gap 0.28s ease,
+    background-color 0.3s ease;
 }
 
 .line-name {
   font-weight: 500;
-  color: var(--bubble-text-secondary);
+  color: var(--bubble-font-color, var(--bubble-text-secondary));
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 1;
-  min-width: 0;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  transition: color 0.24s ease, opacity 0.24s ease, font-size 0.24s ease;
 }
 
 .line-price {
   font-weight: 600;
-  color: var(--bubble-text);
+  color: var(--bubble-font-color, var(--bubble-text));
   white-space: nowrap;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  min-width: 7.5ch;
   margin-left: auto;
   flex-shrink: 0;
+  -webkit-app-region: drag;
+  transition: color 0.24s ease, opacity 0.24s ease, font-size 0.24s ease;
 }
 
 /* PnL Separator */
 .pnl-separator {
   height: 1px;
   background: var(--bubble-border);
-  margin: 8px 0;
+  margin: 5px 0 3px;
   opacity: 0.5;
+  -webkit-app-region: drag;
+  transition: opacity 0.24s ease, background-color 0.24s ease, margin 0.24s ease;
 }
 
 /* PnL Lines */
@@ -367,12 +450,21 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 8px;
-  padding: 3px 0;
+  gap: 16px;
+  padding: 2px 0;
+  -webkit-app-region: drag;
+  border-radius: 6px;
+  transition:
+    color 0.24s ease,
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.28s ease,
+    gap 0.28s ease,
+    background-color 0.3s ease;
 }
 
 .pnl-line:last-of-type {
-  padding-bottom: 0;
+  padding-bottom: 2px;
 }
 
 .pnl-line .line-name {
@@ -384,6 +476,7 @@ body {
   font-weight: 700;
   white-space: nowrap;
   margin-left: auto;
+  min-width: 8.5ch;
 }
 
 .pnl-positive .line-price {
@@ -445,6 +538,31 @@ body {
 }
 
 /* ===== Responsive Font Sizes ===== */
+/* ===== Loading hint ===== */
+.loading-hint {
+  font-size: 11px;
+  color: var(--bubble-text-secondary);
+  padding: 2px 4px;
+  opacity: 0.75;
+  white-space: nowrap;
+  transition: color 0.24s ease, opacity 0.24s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble,
+  .bubble-header,
+  .bubble-lines,
+  .line,
+  .pnl-line,
+  .pnl-separator,
+  .line-name,
+  .line-price,
+  .loading-hint {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 @media (max-width: 1920px) {
   .bubble {
     font-size: 12px;

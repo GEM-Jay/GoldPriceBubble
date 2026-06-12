@@ -1,0 +1,7 @@
+# Windows 7 兼容性配置（使用 Rust 1.77.2 工具链构建，无需 ALTERNATENAME）
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+

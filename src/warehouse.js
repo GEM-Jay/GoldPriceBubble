@@ -4,6 +4,36 @@
 
 let PRICES = [];
 let currentWarehouseId = null;
+const HISTORY_VERSION = 2;
+const MAX_HISTORY_ITEMS = 300;
+
+function _trimWarehouseHistory(warehouse) {
+  const history = Array.isArray(warehouse.history) ? warehouse.history : [];
+  if (history.length <= MAX_HISTORY_ITEMS) {
+    return {
+      ...warehouse,
+      historyVersion: HISTORY_VERSION,
+      history,
+    };
+  }
+
+  const trimmed = history.slice(-MAX_HISTORY_ITEMS);
+  const removed = history.slice(0, history.length - trimmed.length);
+  const archiveSummary = {
+    trimmedCount: removed.length,
+    firstTimestamp: removed[0]?.timestamp || null,
+    lastTimestamp: removed[removed.length - 1]?.timestamp || null,
+    trimmedAt: Date.now(),
+  };
+
+  return {
+    ...warehouse,
+    historyVersion: HISTORY_VERSION,
+    historyTrimmedAt: archiveSummary.trimmedAt,
+    historyArchiveSummary: archiveSummary,
+    history: trimmed,
+  };
+}
 
 // ============================================
 // 数据存储
@@ -12,17 +42,16 @@ function loadWarehouses() {
   try {
     const raw = localStorage.getItem('warehouses');
     return raw ? JSON.parse(raw) : [];
-  } catch (err) {
-    console.error('加载仓库失败:', err);
+  } catch (_) {
     return [];
   }
 }
 
 function saveWarehouses(list) {
   try {
-    localStorage.setItem('warehouses', JSON.stringify(list));
-  } catch (err) {
-    console.error('保存仓库失败:', err);
+    const normalized = Array.isArray(list) ? list.map(_trimWarehouseHistory) : [];
+    localStorage.setItem('warehouses', JSON.stringify(normalized));
+  } catch (_) {
   }
 }
 
@@ -30,14 +59,11 @@ function saveWarehouses(list) {
 // 工具函数
 // ============================================
 function getCurrency(code) {
+  if (typeof DataSource !== 'undefined') {
+    return DataSource.getCurrency(code);
+  }
   if (code === 'CALC_NY_LON_DIFF_PCT') return '%';
-  const map = {
-    gds_AUTD: '￥',
-    'SGE-Au(T+D)': '￥',
-    '21001001000001': '￥',
-    'CZB-JCJ': '￥',
-  };
-  return map[code] || '$';
+  return '$';
 }
 
 function fmt(v, decimals = 2) {
@@ -59,13 +85,50 @@ function formatDateTime(timestamp) {
 
 // 获取显示名称
 function getDisplayName(code) {
-  const nameMap = {
-    'gds_AUTD': '民生银行积存金',
-    'SGE-Au(T+D)': '上海金',
-    '21001001000001': '民生银行积存金',
-    'CZB-JCJ': '浙江商业银行积存金'
-  };
-  return nameMap[code] || code;
+  if (typeof DataSource !== 'undefined') {
+    const mapped = DataSource.getDisplayName(code, '');
+    if (mapped && mapped !== code) return mapped;
+  }
+  const p = PRICES.find(p => p.code === code);
+  if (p && p.name) return p.name;
+  return code;
+}
+
+function getRefPriceItems() {
+  const items = [];
+  const seen = new Set();
+
+  if (typeof DataSource !== 'undefined') {
+    DataSource.getAllItems()
+      .filter(item => getCurrency(item.code) === '¥')
+      .forEach((item) => {
+        if (seen.has(item.code)) return;
+        seen.add(item.code);
+        items.push({
+          code: item.code,
+          name: getDisplayName(item.code),
+        });
+      });
+  }
+
+  PRICES
+    .filter(p => getCurrency(p.code) === '¥')
+    .forEach((p) => {
+      if (seen.has(p.code)) return;
+      seen.add(p.code);
+      items.push({
+        code: p.code,
+        name: getDisplayName(p.code),
+      });
+    });
+
+  return items;
+}
+
+function getRefPriceLabel(code) {
+  const item = getRefPriceItems().find((entry) => entry.code === code);
+  if (item && item.name) return item.name;
+  return getDisplayName(code);
 }
 
 // ============================================
@@ -102,10 +165,13 @@ function renderWarehouseList() {
 
   // 新建仓库按钮（放在顶部）
   const newWarehouseBtn = `
-    <div class="warehouse-new-btn" onclick="warehouseModule.showNewWarehouseForm()">
+    <button class="warehouse-new-btn" onclick="warehouseModule.showNewWarehouseForm()">
       <span class="new-btn-icon">+</span>
-      <span class="new-btn-text">新建仓库</span>
-    </div>
+      <span class="new-btn-copy">
+        <span class="new-btn-text">新建仓库</span>
+        <span class="new-btn-subtext">创建新的持仓视图</span>
+      </span>
+    </button>
   `;
 
   if (warehouses.length === 0) {
@@ -133,8 +199,15 @@ function renderWarehouseList() {
       <div class="warehouse-item ${currentWarehouseId === w.id ? 'active' : ''}" 
            data-id="${w.id}"
            onclick="warehouseModule.selectWarehouse('${w.id}')">
-        <div class="warehouse-name">${w.name}</div>
-        <div class="warehouse-stats-mini">${fmt(w.totalGrams, 2)}g | 盈亏:${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥ | 成本:${fmt(cost, 2)}¥</div>
+        <div class="warehouse-item-top">
+          <div class="warehouse-name">${w.name}</div>
+          <div class="warehouse-item-badge">${getRefPriceLabel(w.refPrice)}</div>
+        </div>
+        <div class="warehouse-item-metrics">
+          <span>${fmt(w.totalGrams, 2)}g</span>
+          <span class="${pnl >= 0 ? 'metric-profit' : 'metric-loss'}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥</span>
+        </div>
+        <div class="warehouse-stats-mini">总成本 ${fmt(cost, 2)}¥</div>
       </div>
     `;
   }).join('');
@@ -180,19 +253,32 @@ function renderWarehouseDetail(id) {
   const currentValue = warehouse.totalGrams * currentPrice;
   const pnl = currentValue - totalCost;
   const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+  const avgCost = warehouse.totalGrams > 0 ? totalCost / warehouse.totalGrams : 0;
 
   const detail = document.getElementById('warehouse-detail');
   detail.innerHTML = `
     <div class="warehouse-detail-container">
-
-      <!-- 1. 当前库情况 -->
-      <div class="warehouse-block block-status">
-        <div class="block-header-with-action">
-          <h3 class="block-title">当前库情况</h3>
+      <div class="warehouse-hero">
+        <div class="warehouse-hero-main">
+          <span class="warehouse-hero-eyebrow">仓库详情</span>
+          <h2 class="warehouse-title">${warehouse.name}</h2>
+          <div class="warehouse-hero-meta">
+            <span>参考金价：${getRefPriceLabel(warehouse.refPrice)}</span>
+            <span>当前价格：${fmt(currentPrice, 2)} ${currency}/g</span>
+            <span>收益率：${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%</span>
+          </div>
+        </div>
+        <div class="warehouse-hero-actions">
           <button class="btn btn-danger btn-small" onclick="warehouseModule.deleteWarehouse('${id}')">删除仓库</button>
         </div>
-        
-        <!-- 状态数据块 -->
+      </div>
+
+      <div class="warehouse-block block-status">
+        <div class="block-header-with-action">
+          <h3 class="block-title">仓位概览</h3>
+          <span class="warehouse-block-caption">实时跟踪当前仓位与盈亏表现</span>
+        </div>
+
         <div class="status-grid">
           <div class="status-item">
             <span class="status-label">当前价格</span>
@@ -212,74 +298,75 @@ function renderWarehouseDetail(id) {
           </div>
           <div class="status-item">
             <span class="status-label">成本价</span>
-            <span class="status-value">${warehouse.totalGrams > 0 ? fmt(totalCost / warehouse.totalGrams, 2) : '0'} ¥/g</span>
+            <span class="status-value">${fmt(avgCost, 2)} ¥/g</span>
           </div>
           <div class="status-item">
             <span class="status-label">总成本</span>
             <span class="status-value">${fmt(totalCost, 2)} ¥</span>
           </div>
         </div>
-        
-        <!-- 仓库信息表单 -->
+
         <div class="warehouse-info-form">
           <div class="form-row">
             <label>仓库名称</label>
             <input type="text" id="rename-input-${id}" placeholder="当前" value="${warehouse.name}">
             <button class="btn btn-secondary btn-small" onclick="warehouseModule.renameWarehouse('${id}')">重命名</button>
           </div>
-          <div class="form-row">
-            <label>价格参考</label>
-            <select id="refprice-select-${id}" onchange="warehouseModule.changeRefPrice('${id}')">
-              ${PRICES.filter(p => getCurrency(p.code) === '￥').map(p => `
-                <option value="${p.code}" ${p.code === warehouse.refPrice ? 'selected' : ''}>
-                  ${getDisplayName(p.code)}
-                </option>
+            <div class="form-row">
+              <label>参考金价</label>
+              <select id="refprice-select-${id}" onchange="warehouseModule.changeRefPrice('${id}')">
+                ${getRefPriceItems().map(item => `
+                  <option value="${item.code}" ${item.code === warehouse.refPrice ? 'selected' : ''}>
+                    ${item.name}
+                  </option>
               `).join('')}
             </select>
           </div>
         </div>
       </div>
 
-      <!-- 2. 交易操作 -->
-      <div class="warehouse-block block-trade">
-        <h3 class="block-title">交易操作</h3>
-        <div class="trade-form-stacked">
-          <div class="form-row">
-            <label>数量（克）</label>
-            <input type="number" id="buy-grams-${id}" placeholder="0.000" step="0.0001" min="0">
+      <div class="warehouse-ops-grid">
+        <div class="warehouse-block block-trade">
+          <h3 class="block-title">交易操作</h3>
+          <div class="trade-form-stacked">
+            <div class="form-row">
+              <label>数量（克）</label>
+              <input type="number" id="buy-grams-${id}" placeholder="0.000" step="0.0001" min="0">
+            </div>
+            <div class="form-row">
+              <label>价格（¥/g）</label>
+              <input type="number" id="buy-price-${id}" placeholder="${fmt(currentPrice, 2)}" step="0.01" min="0" value="${fmt(currentPrice, 2)}">
+            </div>
+            <div class="form-row form-row-buttons">
+              <button class="btn btn-primary warehouse-btn-primary" onclick="warehouseModule.buy('${id}')">买入</button>
+              <button class="btn btn-danger" onclick="warehouseModule.sell('${id}')">卖出</button>
+            </div>
           </div>
-          <div class="form-row">
-            <label>价格（¥/g）</label>
-            <input type="number" id="buy-price-${id}" placeholder="${fmt(currentPrice, 2)}" step="0.01" min="0" value="${fmt(currentPrice, 2)}">
-          </div>
-          <div class="form-row form-row-buttons">
-            <button class="btn btn-success" onclick="warehouseModule.buy('${id}')">买入</button>
-            <button class="btn btn-danger" onclick="warehouseModule.sell('${id}')">卖出</button>
+        </div>
+
+        <div class="warehouse-block block-adjust">
+          <h3 class="block-title">调整当前仓位</h3>
+          <div class="adjust-form-stacked">
+            <div class="form-row">
+              <label>持仓数量（克）</label>
+              <input type="number" id="adjust-grams-${id}" placeholder="${fmt(warehouse.totalGrams, 4)}" step="0.0001" min="0">
+            </div>
+            <div class="form-row">
+              <label>成本价（¥/g）</label>
+              <input type="number" id="adjust-cost-price-${id}" placeholder="${fmt(avgCost, 2)}" step="0.01" min="0">
+            </div>
+            <div class="form-row form-row-buttons">
+              <button class="btn btn-primary warehouse-btn-primary" onclick="warehouseModule.adjustPosition('${id}')">应用调整</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 3. 调整当前仓位 -->
-      <div class="warehouse-block block-adjust">
-        <h3 class="block-title">调整当前仓位</h3>
-        <div class="adjust-form-stacked">
-          <div class="form-row">
-            <label>持仓数量（克）</label>
-            <input type="number" id="adjust-grams-${id}" placeholder="${fmt(warehouse.totalGrams, 4)}" step="0.0001" min="0">
-          </div>
-          <div class="form-row">
-            <label>成本价（¥/g）</label>
-            <input type="number" id="adjust-cost-price-${id}" placeholder="${warehouse.totalGrams > 0 ? fmt(totalCost / warehouse.totalGrams, 2) : '0'}" step="0.01" min="0">
-          </div>
-          <div class="form-row form-row-buttons">
-            <button class="btn btn-secondary" onclick="warehouseModule.adjustPosition('${id}')">应用调整</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. 交易记录 -->
       <div class="warehouse-block block-history">
-        <h3 class="block-title">交易记录</h3>
+        <div class="block-header-with-action">
+          <h3 class="block-title">交易记录</h3>
+          <span class="warehouse-block-caption">按时间倒序展示最近操作</span>
+        </div>
         <div class="history-list">
           ${warehouse.history && warehouse.history.length > 0 ? 
             warehouse.history.slice().reverse().map((h, index) => {
@@ -333,16 +420,29 @@ function renderWarehouseDetail(id) {
 // ============================================
 // 显示新建仓库表单
 // ============================================
-function showNewWarehouseForm() {
-  // 只显示人民币结算的价格
-  const rmbPrices = PRICES.filter(p => getCurrency(p.code) === '￥');
+function _buildRefPriceSelect(selectedCode) {
+  const rmbPrices = getRefPriceItems();
+  if (rmbPrices.length === 0) {
+    return `<span class="text-secondary" style="font-size:12px;">数据抓取中，请稍候…</span>`;
+  }
+  return `<select id="new-warehouse-ref">
+    ${rmbPrices.map(item => `
+      <option value="${item.code}" ${item.code === selectedCode ? 'selected' : ''}>${item.name}</option>
+    `).join('')}
+  </select>`;
+}
 
+function showNewWarehouseForm() {
   const detail = document.getElementById('warehouse-detail');
   detail.innerHTML = `
     <div class="warehouse-detail-container">
-      <div class="warehouse-detail-header">
-        <div class="header-left">
-          <h2 class="warehouse-title">创建新仓库</h2>
+      <div class="warehouse-hero warehouse-hero-create">
+        <div class="warehouse-hero-main">
+          <span class="warehouse-hero-eyebrow">创建仓库</span>
+          <h2 class="warehouse-title">新建仓库</h2>
+          <div class="warehouse-hero-meta">
+            <span>支持先录入初始持仓，也可以创建后再逐笔交易</span>
+          </div>
         </div>
       </div>
 
@@ -352,13 +452,9 @@ function showNewWarehouseForm() {
           <label>仓库名称</label>
           <input type="text" id="new-warehouse-name" placeholder="例如：我的黄金仓库">
         </div>
-        <div class="form-row">
+        <div class="form-row" id="new-warehouse-ref-row">
           <label>价格参考对象</label>
-          <select id="new-warehouse-ref">
-            ${rmbPrices.map(p => `
-              <option value="${p.code}">${getDisplayName(p.code)}</option>
-            `).join('')}
-          </select>
+          ${_buildRefPriceSelect('')}
         </div>
         <div class="form-row">
           <label>总克重（克）</label>
@@ -376,7 +472,24 @@ function showNewWarehouseForm() {
     </div>
   `;
 
-  // 聚焦到第一个输入框
+  // 数据未到时轮询，到了就自动填充 select
+  if (getRefPriceItems().length === 0) {
+    const _timer = setInterval(() => {
+      const refRow = document.getElementById('new-warehouse-ref-row');
+      if (!refRow) { clearInterval(_timer); return; } // 表单已关闭
+      const rmbPrices = getRefPriceItems();
+      if (rmbPrices.length > 0) {
+        const label = refRow.querySelector('label');
+        refRow.innerHTML = '';
+        if (label) refRow.appendChild(label);
+        const tmp = document.createElement('div');
+        tmp.innerHTML = _buildRefPriceSelect('');
+        refRow.appendChild(tmp.firstElementChild);
+        clearInterval(_timer);
+      }
+    }, 800);
+  }
+
   setTimeout(() => {
     document.getElementById('new-warehouse-name')?.focus();
   }, 100);
