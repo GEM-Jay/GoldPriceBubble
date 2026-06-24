@@ -2,17 +2,33 @@
   font: inherit;
 }
 
+:root {
+  --gp-td-primary: #0052d9;
+  --gp-td-primary-hover: #144fcc;
+  --gp-td-danger: #d54941;
+  --gp-td-danger-hover: #c9352d;
+  --gp-td-button-radius: 8px;
+  --gp-td-button-radius-lg: 10px;
+  --gp-td-card-radius: 8px;
+}
+
 .tdesign-manager-shell.t-layout {
-  min-height: 100vh;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
   background: var(--bg-secondary);
   overflow: hidden;
 }
 
 .tdesign-manager-shell .t-layout.main {
+  flex: 1 1 0 !important;
+  width: 0 !important;
   min-width: 0;
   min-height: 0;
-  height: 100vh;
+  height: 100%;
   background: transparent;
   overflow: hidden;
   display: flex;
@@ -77,12 +93,14 @@
 }
 
 .tdesign-manager-shell .t-card {
-  border-radius: 16px;
+  border-radius: var(--gp-td-card-radius);
   border: 1px solid rgba(0, 82, 217, 0.08);
   box-shadow: none;
 }
 
 .tdesign-manager-shell .manager-main-content {
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
@@ -98,25 +116,210 @@
   box-shadow: none;
 }
 
-.tdesign-manager-shell .content .btn.t-button,
-.tdesign-manager-shell .content .rows-step-btn.t-button,
-.tdesign-manager-shell .content .chart-range-btn.t-button,
-.tdesign-manager-shell .content .chart-type-btn.t-button,
-.tdesign-manager-shell .content .chart-refresh-btn.t-button,
-.tdesign-manager-shell .content .chart-currency-btn.t-button,
-.tdesign-manager-shell .content .font-color-btn.t-button,
-.tdesign-manager-shell .content .ticket-image-add.t-button {
-  border-radius: 10px;
+.tdesign-manager-shell .gp-td-button.t-button {
+  border-radius: var(--gp-td-button-radius);
   box-shadow: none;
+  font-weight: 500;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, opacity 0.16s ease;
 }
 
-.tdesign-manager-shell .content .btn.btn-primary.t-button,
-.tdesign-manager-shell .content .chart-range-btn.active.t-button,
-.tdesign-manager-shell .content .chart-type-btn.active.t-button,
-.tdesign-manager-shell .content .chart-currency-btn.active.t-button {
-  background: #0052d9;
-  border-color: #0052d9;
+.tdesign-manager-shell .gp-btn-primary.t-button,
+.tdesign-manager-shell .gp-segment-btn.active.t-button {
+  background: var(--gp-td-primary);
+  border-color: var(--gp-td-primary);
   color: #fff;
+}
+
+.tdesign-manager-shell .gp-segment-btn.active.t-button {
+  background: var(--gp-td-primary) !important;
+  border-color: var(--gp-td-primary) !important;
+  color: #fff !important;
+}
+
+.tdesign-manager-shell .gp-btn-primary.t-button:hover,
+.tdesign-manager-shell .gp-segment-btn.active.t-button:hover {
+  background: var(--gp-td-primary-hover);
+  border-color: var(--gp-td-primary-hover);
+  color: #fff;
+}
+
+.tdesign-manager-shell .gp-btn-secondary.t-button,
+.tdesign-manager-shell .gp-segment-btn.t-button:not(.active) {
+  background: #fff;
+  border-color: #d9e1f2;
+  color: #283246;
+}
+
+.tdesign-manager-shell .gp-btn-secondary.t-button:hover,
+.tdesign-manager-shell .gp-segment-btn.t-button:not(.active):hover {
+  background: #f4f7fc;
+  border-color: rgba(0, 82, 217, 0.26);
+  color: var(--gp-td-primary);
+}
+
+.tdesign-manager-shell .gp-btn-danger.t-button {
+  background: var(--gp-td-danger);
+  border-color: var(--gp-td-danger);
+  color: #fff;
+}
+
+.tdesign-manager-shell .gp-btn-danger.t-button:hover {
+  background: var(--gp-td-danger-hover);
+  border-color: var(--gp-td-danger-hover);
+  color: #fff;
+}
+
+.tdesign-manager-shell .gp-btn-small.t-button {
+  min-height: 30px;
+  padding-inline: 12px;
+}
+
+.tdesign-manager-shell .gp-icon-btn.t-button {
+  min-width: 30px;
+  width: 30px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+}
+
+.tdesign-manager-shell .gp-segment-btn.t-button {
+  min-height: 30px;
+  border-radius: var(--gp-td-button-radius);
+}
+
+.tdesign-manager-shell .chart-type-btn.gp-icon-btn.t-button,
+.tdesign-manager-shell .rows-step-btn.gp-icon-btn.t-button,
+.tdesign-manager-shell .chart-refresh-btn.gp-icon-btn.t-button {
+  width: 30px;
+  height: 30px;
+}
+
+.tdesign-manager-shell .ticket-image-add.gp-icon-btn.t-button {
+  width: 84px;
+  height: 84px;
+  min-width: 84px;
+  min-height: 84px;
+  border-style: dashed;
+  border-radius: 8px;
+}
+
+.tdesign-manager-shell .ticket-image-remove.gp-icon-btn.t-button,
+.tdesign-manager-shell .ticket-modal-close.gp-icon-btn.t-button {
+  border-radius: 999px;
+}
+
+.tdesign-manager-shell .ticket-image-remove.gp-icon-btn.t-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  background: rgba(23, 36, 45, 0.82);
+  border-color: transparent;
+  color: #fff;
+  font-size: 15px;
+}
+
+.tdesign-manager-shell .ticket-modal-close.gp-icon-btn.t-button {
+  font-size: 18px;
+}
+
+.tdesign-manager-shell .warehouse-new-btn.gp-td-button.t-button {
+  width: 100%;
+  min-height: 46px;
+  justify-content: flex-start;
+  border-style: dashed;
+  background: rgba(0, 82, 217, 0.035);
+  border-color: rgba(0, 82, 217, 0.28);
+  color: var(--gp-td-primary);
+}
+
+.tdesign-manager-shell .warehouse-new-btn.gp-td-button.t-button:hover {
+  background: rgba(0, 82, 217, 0.075);
+  border-color: rgba(0, 82, 217, 0.42);
+  color: var(--gp-td-primary);
+}
+
+.tdesign-manager-shell .eula-btn-locked.t-button {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tdesign-manager-shell .gp-td-switch.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 24px;
+  min-width: 40px;
+  border-radius: 999px;
+  background: #cfd6e4;
+  border: 0;
+  box-shadow: none !important;
+  overflow: visible;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tdesign-manager-shell .gp-td-switch.switch::before,
+.tdesign-manager-shell .gp-td-switch.switch::after {
+  content: none !important;
+}
+
+.tdesign-manager-shell .gp-td-switch.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.tdesign-manager-shell .gp-td-switch.switch .slider {
+  position: absolute;
+  inset: 0;
+  background: transparent !important;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none !important;
+}
+
+.tdesign-manager-shell .gp-td-switch.switch .slider::before {
+  width: 20px;
+  height: 20px;
+  left: 2px;
+  top: 2px;
+  bottom: auto;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 0.2s cubic-bezier(0.38, 0, 0.24, 1), box-shadow 0.2s ease;
+}
+
+.tdesign-manager-shell .gp-td-switch.switch:has(input:checked),
+.tdesign-manager-shell .gp-td-switch.switch.gp-td-switch-checked {
+  background: var(--gp-td-primary);
+  border-color: var(--gp-td-primary);
+}
+
+.tdesign-manager-shell .gp-td-switch.switch input:checked + .slider::before {
+  transform: translateX(16px);
+}
+
+.tdesign-manager-shell .gp-td-switch.switch:hover {
+  background: #bcc6d6;
+}
+
+.tdesign-manager-shell .gp-td-switch.switch:has(input:checked):hover,
+.tdesign-manager-shell .gp-td-switch.switch.gp-td-switch-checked:hover {
+  background: var(--gp-td-primary-hover);
+  border-color: var(--gp-td-primary-hover);
+}
+
+.tdesign-manager-shell .gp-td-switch.switch:focus-within {
+  box-shadow: 0 0 0 3px rgba(0, 82, 217, 0.14);
 }
 
 .tdesign-manager-shell .content .badge.t-tag {
@@ -157,6 +360,10 @@
   display: flex !important;
   flex-direction: row !important;
   flex-wrap: nowrap !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
 }
 
 .tdesign-manager-shell .sidebar {
@@ -188,6 +395,7 @@
 .tdesign-manager-shell .main,
 .tdesign-manager-shell .manager-main-content,
 .tdesign-manager-shell .content {
+  width: 100%;
   min-height: 0 !important;
 }
 
@@ -330,9 +538,11 @@
 /* Ensure legacy view containers can actually scroll inside content */
 .tdesign-manager-shell .manager-main-content > div {
   display: flex;
+  width: 100%;
+  height: 100%;
   flex: 1 1 auto;
   min-height: 0;
-  height: 100%;
+  overflow: hidden;
 }
 
 .tdesign-manager-shell .content,
@@ -600,26 +810,61 @@
   box-shadow: 0 0 0 3px rgba(86, 140, 255, 0.12) !important;
 }
 
-[data-theme="dark"] .tdesign-manager-shell .content .btn.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .rows-step-btn.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .chart-range-btn.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .chart-type-btn.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .chart-refresh-btn.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .chart-currency-btn.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .font-color-btn.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .ticket-image-add.t-button {
+[data-theme="dark"] .tdesign-manager-shell .gp-btn-secondary.t-button,
+[data-theme="dark"] .tdesign-manager-shell .gp-segment-btn.t-button:not(.active) {
   background: #252d39 !important;
   border-color: #394455 !important;
   color: #d6deeb !important;
 }
 
-[data-theme="dark"] .tdesign-manager-shell .content .btn.btn-primary.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .chart-range-btn.active.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .chart-type-btn.active.t-button,
-[data-theme="dark"] .tdesign-manager-shell .content .chart-currency-btn.active.t-button {
+[data-theme="dark"] .tdesign-manager-shell .gp-btn-secondary.t-button:hover,
+[data-theme="dark"] .tdesign-manager-shell .gp-segment-btn.t-button:not(.active):hover {
+  background: #303949 !important;
+  border-color: rgba(126, 167, 255, 0.42) !important;
+  color: #a9c4ff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-btn-primary.t-button,
+[data-theme="dark"] .tdesign-manager-shell .gp-segment-btn.active.t-button {
   background: #2667ff !important;
   border-color: #2667ff !important;
   color: #fff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-btn-danger.t-button {
+  background: #d54941 !important;
+  border-color: #d54941 !important;
+  color: #fff !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-btn-danger.t-button:hover {
+  background: #e0524a !important;
+  border-color: #e0524a !important;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-td-switch.switch {
+  background: #394455;
+  border-color: transparent;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-td-switch.switch:hover {
+  background: #465267;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-td-switch.switch:has(input:checked),
+[data-theme="dark"] .tdesign-manager-shell .gp-td-switch.switch.gp-td-switch-checked {
+  background: #2667ff;
+  border-color: #2667ff;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-td-switch.switch:has(input:checked):hover,
+[data-theme="dark"] .tdesign-manager-shell .gp-td-switch.switch.gp-td-switch-checked:hover {
+  background: #3a75ff;
+  border-color: #3a75ff;
+}
+
+[data-theme="dark"] .tdesign-manager-shell .gp-td-switch.switch:focus-within {
+  box-shadow: 0 0 0 3px rgba(86, 140, 255, 0.18);
 }
 
 [data-theme="dark"] .tdesign-manager-shell #view-prices .card {

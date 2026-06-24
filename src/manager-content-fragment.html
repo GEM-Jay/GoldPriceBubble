@@ -10,14 +10,14 @@
                 <div class="card-header-right">
                   <div class="rows-stepper">
                     <span class="rows-stepper-label">气泡上限</span>
-                    <button class="rows-step-btn" id="rows-step-down">−</button>
+                    <button class="rows-step-btn gp-icon-btn" id="rows-step-down" aria-label="减少气泡上限">−</button>
                     <span class="rows-step-val" id="rows-step-value">2</span>
-                    <button class="rows-step-btn" id="rows-step-up">+</button>
+                    <button class="rows-step-btn gp-icon-btn" id="rows-step-up" aria-label="增加气泡上限">+</button>
                   </div>
                   <span class="badge badge-primary">
                     已选 <span id="selected-count">0</span> / <span id="rows-limit">2</span>
                   </span>
-                  <button id="deselect-all-btn" class="btn btn-secondary btn-small">清空选择</button>
+                  <button id="deselect-all-btn" class="btn btn-secondary btn-small gp-btn-secondary">清空选择</button>
                 </div>
               </div>
 
@@ -58,8 +58,8 @@
                 <div class="chart-hero-label">
                   <span class="chart-commodity-name" id="chart-commodity-name">黄金延期</span>
                   <div class="chart-currency-toggle">
-                  <button class="chart-currency-btn active" data-currency="cny">CNY</button>
-                  <button class="chart-currency-btn" data-currency="usd">USD</button>
+                  <button class="chart-currency-btn active gp-segment-btn" data-currency="cny">CNY</button>
+                  <button class="chart-currency-btn gp-segment-btn" data-currency="usd">USD</button>
                   </div>
                 </div>
                 <div id="chart-price-display" class="chart-price-display">—</div>
@@ -69,10 +69,10 @@
                 <div class="chart-mini-stats" id="chart-mini-stats"></div>
                 <div class="chart-toolbar">
                   <div class="chart-type-btns">
-                    <button class="chart-type-btn active" data-type="line" title="线图">
+                    <button class="chart-type-btn active gp-icon-btn gp-segment-btn" data-type="line" title="线图" aria-label="线图">
                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="1,11 5,5 8,8 13,2" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
                     </button>
-                    <button class="chart-type-btn" data-type="candle" title="K线">
+                    <button class="chart-type-btn gp-icon-btn gp-segment-btn" data-type="candle" title="K线" aria-label="K线">
                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                         <line x1="3" y1="1" x2="3" y2="3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                         <rect x="1.5" y="3" width="3" height="5" rx=".5" stroke="currentColor" stroke-width="1.2" fill="none"/>
@@ -84,13 +84,13 @@
                     </button>
                   </div>
                   <div class="chart-range-btns">
-                    <button class="chart-range-btn active" data-range="0">今日</button>
-                    <button class="chart-range-btn" data-range="7">近7日</button>
-                    <button class="chart-range-btn" data-range="30">近1月</button>
-                    <button class="chart-range-btn" data-range="365">近1年</button>
-                    <button class="chart-range-btn" data-range="1095">近3年</button>
-                    <button class="chart-range-btn" data-range="1825">近5年</button>
-                    <button class="chart-refresh-btn" id="chart-refresh-btn" title="刷新数据">⟳</button>
+                    <button class="chart-range-btn active gp-segment-btn" data-range="0">今日</button>
+                    <button class="chart-range-btn gp-segment-btn" data-range="7">近7日</button>
+                    <button class="chart-range-btn gp-segment-btn" data-range="30">近1月</button>
+                    <button class="chart-range-btn gp-segment-btn" data-range="365">近1年</button>
+                    <button class="chart-range-btn gp-segment-btn" data-range="1095">近3年</button>
+                    <button class="chart-range-btn gp-segment-btn" data-range="1825">近5年</button>
+                    <button class="chart-refresh-btn gp-icon-btn" id="chart-refresh-btn" title="刷新数据" aria-label="刷新数据">⟳</button>
                   </div>
                 </div>
               </div>
@@ -100,58 +100,54 @@
 
           <!-- ===== Bubble Style View ===== -->
           <section id="view-bubble-style" class="view">
-            <div class="card">
+            <div class="style-panel">
+              <h3 class="section-title">外观设置</h3>
 
-              <div class="style-panel">
-                <h3 class="section-title">外观设置</h3>
+              <div class="form-row">
+                <label>主题配色</label>
+                <select id="theme-color-select">
+                  <option value="classic">经典主题</option>
+                  <option value="dark">暗黑主题</option>
+                </select>
+              </div>
 
-                <div class="form-row">
-                  <label>主题配色</label>
-                  <select id="theme-color-select">
-                    <option value="classic">经典主题</option>
-                    <option value="dark">暗黑主题</option>
-                  </select>
+              <div class="form-row form-row-font">
+                <label>字体大小 <span id="font-size-value">12</span>px</label>
+                <div class="font-tube" id="font-tube" style="-webkit-app-region: no-drag; pointer-events: auto;">
+                  <div class="font-tube-cell" data-val="10"><span class="font-tube-tick">极小</span></div>
+                  <div class="font-tube-cell" data-val="11"><span class="font-tube-tick">小</span></div>
+                  <div class="font-tube-cell" data-val="12"><span class="font-tube-tick">中</span></div>
+                  <div class="font-tube-cell" data-val="13"><span class="font-tube-tick">大</span></div>
+                  <div class="font-tube-cell" data-val="15"><span class="font-tube-tick">极大</span></div>
                 </div>
+              </div>
 
-                <div class="form-row form-row-font">
-                  <label>字体大小 <span id="font-size-value">12</span>px</label>
-                  <div class="font-tube" id="font-tube" style="-webkit-app-region: no-drag; pointer-events: auto;">
-                    <div class="font-tube-cell" data-val="10"><span class="font-tube-tick">极小</span></div>
-                    <div class="font-tube-cell" data-val="11"><span class="font-tube-tick">小</span></div>
-                    <div class="font-tube-cell" data-val="12"><span class="font-tube-tick">中</span></div>
-                    <div class="font-tube-cell" data-val="13"><span class="font-tube-tick">大</span></div>
-                    <div class="font-tube-cell" data-val="15"><span class="font-tube-tick">极大</span></div>
-                  </div>
+              <div class="switch-row">
+                <span class="switch-label">摸鱼模式（仅数字+边框）</span>
+                <label class="switch gp-td-switch">
+                  <input type="checkbox" id="bubble-minimal" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="form-row form-row-font-color">
+                <label>字体颜色</label>
+                <div class="font-color-btns" id="font-color-btns" style="-webkit-app-region: no-drag; pointer-events: auto;">
+                  <button class="font-color-btn gp-segment-btn" data-color="white" title="白色">白色</button>
+                  <button class="font-color-btn gp-segment-btn" data-color="black" title="黑色">黑色</button>
                 </div>
+              </div>
 
-                <div class="switch-row">
-                  <span class="switch-label">摸鱼模式（仅数字+边框）</span>
-                  <label class="switch">
-                    <input type="checkbox" id="bubble-minimal" />
-                    <span class="slider"></span>
-                  </label>
-                </div>
+              <div class="switch-row">
+                <span class="switch-label">气泡显示仓库盈亏</span>
+                <label class="switch gp-td-switch">
+                  <input type="checkbox" id="show-pnl" />
+                  <span class="slider"></span>
+                </label>
+              </div>
 
-                <div class="form-row form-row-font-color">
-                  <label>字体颜色</label>
-                  <div class="font-color-btns" id="font-color-btns" style="-webkit-app-region: no-drag; pointer-events: auto;">
-                    <button class="font-color-btn" data-color="white" title="白色">白色</button>
-                    <button class="font-color-btn" data-color="black" title="黑色">黑色</button>
-                  </div>
-                </div>
-
-
-                <div class="switch-row">
-                  <span class="switch-label">气泡显示仓库盈亏</span>
-                  <label class="switch">
-                    <input type="checkbox" id="show-pnl" />
-                    <span class="slider"></span>
-                  </label>
-                </div>
-
-                <div id="pnl-warehouse-select" style="display: none; margin-top: 10px;">
-                  <!-- 动态生成 chip 列表 -->
-                </div>
+              <div id="pnl-warehouse-select" style="display: none; margin-top: 10px;">
+                <!-- 动态生成 chip 列表 -->
               </div>
             </div>
           </section>
@@ -160,46 +156,29 @@
           <section id="view-settings" class="view">
             <div class="card">
               <div class="settings-layout">
-                <div class="style-panel settings-panel settings-panel-status">
-                  <div class="settings-panel-head">
-                    <div>
-                      <h3 class="section-title">更新与状态</h3>
-                      <p class="settings-panel-hint">检查版本状态，确认当前软件与安装信息。</p>
+                <div class="settings-version-card">
+                  <div class="settings-version-main">
+                    <span class="settings-version-title">版本信息</span>
+                    <div class="settings-version-line">
+                      <strong class="settings-version-number">GoldPrice <span id="app-version">—</span></strong>
+                      <span id="check-update-result" class="text-secondary settings-inline-result"></span>
                     </div>
                   </div>
-                  <div class="settings-status-grid">
-                    <div class="settings-stat-card">
-                      <span class="settings-stat-label">当前版本</span>
-                      <strong class="settings-stat-value">GoldPrice <span id="app-version"></span></strong>
-                    </div>
-                    <div class="settings-stat-card settings-stat-card-id">
-                      <span class="settings-stat-label">软件 ID</span>
-                      <strong class="settings-stat-value settings-stat-value-id" id="app-install-id">—</strong>
-                    </div>
-                  </div>
-                  <div class="settings-update-row">
+                  <div class="settings-version-actions">
+                    <span id="update-available-label" class="settings-update-available" style="display:none;">有新版本</span>
                     <span class="btn-badge-wrap">
-                      <button id="check-update-btn" class="btn btn-secondary btn-small settings-update-btn">检查更新</button>
+                      <button id="check-update-btn" class="btn btn-secondary btn-small gp-btn-secondary settings-update-btn">检查更新</button>
                       <span id="app-update-dot-settings" class="update-dot" style="display:none;"></span>
                     </span>
-                    <span id="check-update-result" class="text-secondary settings-inline-result"></span>
                   </div>
                 </div>
 
-                <div class="style-panel settings-panel">
-                  <div class="settings-panel-head">
-                    <div>
-                      <h3 class="section-title">常规设置</h3>
-                      <p class="settings-panel-hint">与启动和日常使用相关的基础选项。</p>
-                    </div>
-                  </div>
-                  <div class="switch-row">
-                    <span class="switch-label">开机自动启动</span>
-                    <label class="switch">
-                      <input type="checkbox" id="auto-start" />
-                      <span class="slider"></span>
-                    </label>
-                  </div>
+                <div class="switch-row settings-plain-row">
+                  <span class="switch-label">开机自动启动</span>
+                  <label class="switch gp-td-switch">
+                    <input type="checkbox" id="auto-start" />
+                    <span class="slider"></span>
+                  </label>
                 </div>
 
                 <div class="style-panel settings-panel">
@@ -210,9 +189,9 @@
                     </div>
                   </div>
                   <div class="settings-action-grid">
-                    <button id="export-data-btn" class="btn btn-secondary settings-action-btn">导出配置</button>
-                    <button id="import-data-btn" class="btn btn-secondary settings-action-btn">导入配置</button>
-                    <button id="reset-data-btn" class="btn btn-secondary settings-action-btn">重置所有数据</button>
+                    <button id="export-data-btn" class="btn btn-secondary gp-btn-secondary settings-action-btn">导出配置</button>
+                    <button id="import-data-btn" class="btn btn-secondary gp-btn-secondary settings-action-btn">导入配置</button>
+                    <button id="reset-data-btn" class="btn btn-danger gp-btn-danger settings-action-btn">重置所有数据</button>
                   </div>
                 </div>
 
@@ -220,7 +199,6 @@
                   <div class="settings-panel-head">
                     <div>
                       <h3 class="section-title">工单支持</h3>
-                      <p class="settings-panel-hint">提交问题、上传截图，并查看历史工单回复。</p>
                     </div>
                   </div>
                   <div class="ticket-compose">
@@ -243,7 +221,7 @@
                       <label>图片附件</label>
                       <div class="ticket-upload-block">
                         <div id="ticket-image-list" class="ticket-image-list"></div>
-                        <button id="ticket-pick-images-btn" class="ticket-image-add" type="button" aria-label="添加图片">
+                        <button id="ticket-pick-images-btn" class="ticket-image-add gp-icon-btn" type="button" aria-label="添加图片">
                           <span class="ticket-image-add-plus">+</span>
                         </button>
                         <input id="ticket-images-input" type="file" accept="image/png,image/jpeg,image/webp" multiple style="display:none;" />
@@ -252,7 +230,7 @@
                     </div>
                     <div class="switch-row ticket-switch-row">
                       <span class="switch-label">自动附带最近日志</span>
-                      <label class="switch">
+                      <label class="switch gp-td-switch">
                         <input type="checkbox" id="ticket-include-logs" checked />
                         <span class="slider"></span>
                       </label>
@@ -260,8 +238,8 @@
                     <div class="ticket-action-row">
                       <div id="ticket-submit-msg" class="text-secondary ticket-submit-msg"></div>
                       <div class="ticket-action-buttons">
-                        <button id="ticket-open-history-btn" class="btn btn-secondary ticket-history-btn" type="button">我的工单<span id="ticket-open-history-badge" class="ticket-btn-badge" style="display:none;">新消息</span></button>
-                        <button id="ticket-submit-btn" class="btn btn-primary" type="button">提交工单</button>
+                        <button id="ticket-open-history-btn" class="btn btn-secondary gp-btn-secondary ticket-history-btn" type="button">我的工单<span id="ticket-open-history-badge" class="ticket-btn-badge" style="display:none;">新消息</span></button>
+                        <button id="ticket-submit-btn" class="btn btn-primary gp-btn-primary" type="button">提交工单</button>
                       </div>
                     </div>
                   </div>
@@ -271,11 +249,11 @@
                   <div class="settings-panel-head">
                     <div>
                       <h3 class="section-title">关于</h3>
-                      <p class="settings-panel-hint">软件说明与版权信息。</p>
                     </div>
                   </div>
                   <p class="text-secondary settings-about-copy">
                     <strong>GoldPrice</strong><br />
+                    <span class="settings-about-id">软件 ID：<span id="app-install-id">—</span></span><br />
                     实时黄金价格监控工具<br />
                     © 2025 Lucas Lee. All rights reserved.
                   </p>
@@ -288,7 +266,7 @@
                       <p class="settings-panel-hint settings-panel-hint-danger">会清除所有本地数据并退出应用，请仅在需要完全重置时使用。</p>
                     </div>
                   </div>
-                  <button id="clear-and-quit-btn" class="btn settings-danger-btn">清除全部数据并退出</button>
+                  <button id="clear-and-quit-btn" class="btn btn-danger gp-btn-danger settings-danger-btn">清除全部数据并退出</button>
                 </div>
               </div>
             </div>

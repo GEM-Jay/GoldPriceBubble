@@ -2,25 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import contentMarkup from './manager-content-fragment.html?raw';
 import overlaysMarkup from './manager-overlays-fragment.html?raw';
-import configScriptUrl from './config.js?url';
-import dataSourceScriptUrl from './datasource.js?url';
-import warehouseScriptUrl from './warehouse.js?url';
-import klineDataScriptUrl from './kline_data.js?url';
-import klineCacheScriptUrl from './kline_cache.js?url';
-import echartsScriptUrl from './echarts.min.js?url';
-import chartScriptUrl from './chart.js?url';
-import managerScriptUrl from './manager.js?url';
-
-const legacyScripts = [
-  configScriptUrl,
-  dataSourceScriptUrl,
-  warehouseScriptUrl,
-  klineDataScriptUrl,
-  klineCacheScriptUrl,
-  echartsScriptUrl,
-  chartScriptUrl,
-  managerScriptUrl,
-];
+import { bootManagerApp } from './manager.js';
 
 const navItems = [
   {
@@ -60,22 +42,6 @@ const globalConfig = computed(() => ({
   classPrefix: 't',
 }));
 
-async function loadLegacyScripts() {
-  for (const url of legacyScripts) {
-    const existing = document.querySelector(`script[data-legacy-src="${url}"]`);
-    if (existing) continue;
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = url;
-      script.async = false;
-      script.dataset.legacySrc = url;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Failed to load legacy script: ${url}`));
-      document.body.appendChild(script);
-    });
-  }
-}
-
 function syncBodyTheme() {
   document.body.dataset.theme = appTheme.value;
   document.body.dataset.themeColor = themeColor.value;
@@ -85,24 +51,122 @@ function applyClassList(elements, classes) {
   elements.forEach((el) => el.classList.add(...classes));
 }
 
-function decorateLegacyButtons() {
-  document.querySelectorAll('.content .btn:not([data-tdesignified])').forEach((el) => {
-    const classes = ['t-button', 't-button--shape-rectangle', 't-button--variant-outline', 't-size-s'];
-    if (el.classList.contains('btn-primary')) {
-      classes.push('t-button--theme-primary', 't-button--variant-base');
-    } else if (el.classList.contains('btn-secondary')) {
-      classes.push('t-button--theme-default', 't-button--variant-outline');
-    } else {
-      classes.push('t-button--theme-default', 't-button--variant-outline');
-    }
-    el.classList.add(...classes);
-    el.dataset.tdesignified = 'button';
-  });
+function isDangerButton(el) {
+  return el.classList.contains('btn-danger')
+    || el.classList.contains('gp-btn-danger')
+    || el.classList.contains('settings-danger-btn')
+    || el.classList.contains('eula-btn-reject')
+    || el.id === 'reset-data-btn'
+    || el.id === 'clear-and-quit-btn'
+    || el.dataset.action === 'delete-warehouse'
+    || el.dataset.action === 'sell-warehouse';
+}
 
-  document.querySelectorAll('.rows-step-btn:not([data-tdesignified]), .chart-range-btn:not([data-tdesignified]), .chart-type-btn:not([data-tdesignified]), .chart-refresh-btn:not([data-tdesignified]), .chart-currency-btn:not([data-tdesignified]), .font-color-btn:not([data-tdesignified]), .ticket-image-add:not([data-tdesignified])').forEach((el) => {
-    el.classList.add('t-button', 't-button--theme-default', 't-button--variant-outline', 't-size-s');
-    el.dataset.tdesignified = 'button';
-  });
+function isPrimaryButton(el) {
+  return el.classList.contains('btn-primary')
+    || el.classList.contains('gp-btn-primary')
+    || el.classList.contains('eula-btn-accept')
+    || el.classList.contains('warehouse-new-btn')
+    || el.dataset.action === 'show-new-warehouse'
+    || el.dataset.action === 'buy-warehouse'
+    || el.dataset.action === 'adjust-position'
+    || el.dataset.action === 'create-warehouse';
+}
+
+function isSmallButton(el) {
+  return el.classList.contains('btn-small')
+    || el.classList.contains('gp-btn-small')
+    || el.classList.contains('rows-step-btn')
+    || el.classList.contains('chart-type-btn')
+    || el.classList.contains('chart-refresh-btn')
+    || el.classList.contains('ticket-image-remove')
+    || el.classList.contains('ticket-modal-close');
+}
+
+function isIconButton(el) {
+  return el.classList.contains('gp-icon-btn')
+    || el.classList.contains('rows-step-btn')
+    || el.classList.contains('chart-type-btn')
+    || el.classList.contains('chart-refresh-btn')
+    || el.classList.contains('ticket-image-add')
+    || el.classList.contains('ticket-image-remove')
+    || el.classList.contains('ticket-modal-close');
+}
+
+function isSegmentButton(el) {
+  return el.classList.contains('gp-segment-btn')
+    || el.classList.contains('chart-range-btn')
+    || el.classList.contains('chart-type-btn')
+    || el.classList.contains('chart-currency-btn')
+    || el.classList.contains('font-color-btn');
+}
+
+function decorateButtonElement(el) {
+  if (!el || el.classList.contains('wc-btn')) return;
+
+  const shouldBeDanger = isDangerButton(el);
+  const shouldBePrimary = isPrimaryButton(el);
+  const shouldBeSmall = isSmallButton(el);
+  const shouldBeIcon = isIconButton(el);
+  const shouldBeSegment = isSegmentButton(el);
+  const shouldBeLocked = el.classList.contains('eula-btn-locked');
+
+  el.classList.remove(
+    't-button--theme-primary',
+    't-button--theme-default',
+    't-button--theme-danger',
+    't-button--variant-base',
+    't-button--variant-outline',
+    't-is-disabled',
+    'gp-btn-primary',
+    'gp-btn-secondary',
+    'gp-btn-danger',
+    'gp-btn-small',
+    'gp-icon-btn',
+    'gp-segment-btn',
+  );
+
+  const baseClasses = [
+    't-button',
+    't-button--shape-rectangle',
+    'gp-td-button',
+  ];
+  const stateClasses = [];
+
+  if (shouldBeDanger) {
+    stateClasses.push('t-button--theme-danger', 't-button--variant-base', 'gp-btn-danger');
+  } else if (shouldBePrimary) {
+    stateClasses.push('t-button--theme-primary', 't-button--variant-base', 'gp-btn-primary');
+  } else {
+    stateClasses.push('t-button--theme-default', 't-button--variant-outline', 'gp-btn-secondary');
+  }
+
+  if (shouldBeSmall) stateClasses.push('t-size-s', 'gp-btn-small');
+  if (shouldBeIcon) stateClasses.push('gp-icon-btn');
+  if (shouldBeSegment) stateClasses.push('gp-segment-btn');
+  if (shouldBeLocked) stateClasses.push('t-is-disabled');
+
+  el.classList.add(...baseClasses, ...stateClasses);
+  el.dataset.tdesignified = 'button';
+}
+
+function decorateLegacyButtons() {
+  const selectors = [
+    '.content .btn',
+    '.modal-overlay .btn',
+    '.eula-btn',
+    '.rows-step-btn',
+    '.chart-range-btn',
+    '.chart-type-btn',
+    '.chart-refresh-btn',
+    '.chart-currency-btn',
+    '.font-color-btn',
+    '.ticket-image-add',
+    '.ticket-image-remove',
+    '.ticket-modal-close',
+    '.warehouse-new-btn',
+  ];
+  document.querySelectorAll(selectors.join(', ')).forEach(decorateButtonElement);
 }
 
 function decorateLegacyCards() {
@@ -129,16 +193,39 @@ function decorateLegacyFields() {
   });
 }
 
+function decorateLegacySwitches() {
+  document.querySelectorAll('.content .switch').forEach((switchEl) => {
+    const input = switchEl.querySelector('input[type="checkbox"]');
+    const slider = switchEl.querySelector('.slider');
+    if (!input || !slider) return;
+
+    switchEl.classList.remove('t-switch');
+    slider.classList.remove('t-switch__handle');
+    input.classList.remove('t-switch__input');
+    switchEl.classList.add('gp-td-switch');
+    switchEl.classList.toggle('gp-td-switch-checked', input.checked);
+    if (input.dataset.boundTdesignSwitch !== '1') {
+      input.dataset.boundTdesignSwitch = '1';
+      input.addEventListener('change', () => {
+        switchEl.classList.toggle('gp-td-switch-checked', input.checked);
+      });
+    }
+    switchEl.dataset.tdesignified = 'switch';
+  });
+}
+
 function enhanceLegacyDom() {
   decorateLegacyCards();
   decorateLegacyButtons();
   decorateLegacyFields();
+  decorateLegacySwitches();
 }
 
 onMounted(async () => {
   syncBodyTheme();
   await nextTick();
   enhanceLegacyDom();
+  bootManagerApp();
   compatibilityObserver = new MutationObserver(() => {
     enhanceLegacyDom();
   });
@@ -146,7 +233,6 @@ onMounted(async () => {
     childList: true,
     subtree: true,
   });
-  await loadLegacyScripts();
   enhanceLegacyDom();
 });
 
@@ -190,6 +276,13 @@ onBeforeUnmount(() => {
             >
               新消息
             </span>
+            <span
+              v-if="item.key === 'settings'"
+              id="app-update-dot-sidebar"
+              class="update-dot nav-update-dot"
+              style="display:none;"
+              aria-hidden="true"
+            ></span>
           </t-button>
         </nav>
 
@@ -198,25 +291,6 @@ onBeforeUnmount(() => {
             <div class="bp-header">
               <span class="bp-title">气泡预览</span>
               <span class="bp-mode" id="bp-mode">正常</span>
-            </div>
-          </t-card>
-
-          <t-card id="update-banner" class="update-banner" style="display:none;" :bordered="false">
-            <div class="update-info">
-              <span class="update-text">新版本 <strong id="update-version"></strong></span>
-            </div>
-            <span class="btn-badge-wrap">
-              <t-button id="download-update-btn" class="update-action-btn" size="small" theme="primary">
-                下载更新
-              </t-button>
-              <span id="app-update-dot" class="update-dot"></span>
-            </span>
-            <div id="download-progress" class="download-progress" style="display:none;">
-              <div class="download-progress-track">
-                <div class="download-progress-bar" id="download-progress-bar"></div>
-              </div>
-              <span class="download-progress-pct" id="download-progress-pct">0%</span>
-              <button id="download-cancel-btn" class="download-cancel-btn" type="button">取消</button>
             </div>
           </t-card>
 

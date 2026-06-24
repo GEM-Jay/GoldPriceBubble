@@ -2,6 +2,19 @@
 // manager.js  —— GoldPrice 管理界面主控制器（Tauri版）
 // ========================================================
 
+import dataSource from './datasource.js';
+import { chartModule } from './chart.js';
+import {
+  SERVER_URL,
+  TICKET_SERVER_URL,
+  appendClientLog,
+  getClientRuntimeSummary,
+  getTauriApis,
+  normalizeServerUrl,
+  waitForTauri,
+} from './runtime.js';
+import warehouseModule, { bindWarehouseInteractions } from './warehouse.js';
+
 const _cleanupFns = [];
 const _managedIntervals = new Map();
 const _managedTimeouts = new Map();
@@ -21,8 +34,10 @@ let _sseQueuedPayload = null;
 let _ssePendingChunk = '';
 let _sseMessageRing = [];
 let _sseLatestSnapshot = null;
-let _activeDownloadId = null;
-let _downloadCancelled = false;
+let _activeUpdateInstallInFlight = false;
+let _updaterEventUnlisten = null;
+const _noopInvoke = async () => null;
+const _noopEmit = () => {};
 const SSE_RING_LIMIT = 50;
 const SSE_MAX_PENDING_CHARS = 64 * 1024;
 const SSE_MAX_MESSAGE_CHARS = 8 * 1024;
@@ -38,19 +53,6 @@ const _streamMetrics = {
   processedInWindow: 0,
   windowStartedAt: 0,
 };
-
-function normalizeServerUrl(url) {
-  const fallback = String(typeof SERVER_URL !== 'undefined' ? SERVER_URL : '').replace(/\/+$/, '');
-  const raw = String(url || '').trim();
-  if (!raw) return fallback;
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== 'https:') return fallback;
-    return raw.replace(/\/+$/, '');
-  } catch (_) {
-    return fallback;
-  }
-}
 
 function registerCleanup(fn) {
   if (typeof fn === 'function') _cleanupFns.push(fn);
@@ -95,7 +97,7 @@ function cleanupManagedResources() {
   _managedTimeouts.forEach((id) => clearTimeout(id));
   _managedTimeouts.clear();
   _disconnectSSE();
-  try { DataSource?.dispose?.(); } catch (_) {}
+  try { dataSource.dispose(); } catch (_) {}
   while (_cleanupFns.length) {
     const fn = _cleanupFns.pop();
     try { fn(); } catch (_) {}
@@ -107,20 +109,31 @@ window.addEventListener('beforeunload', () => {
   cleanupManagedResources();
 }, { once: true });
 
-// 等待 Tauri API 加载
-function waitForTauri(callback) {
-  if (window.__TAURI__) {
-    setTimeout(callback, 0);
-  } else {
-    setTimeout(() => waitForTauri(callback), 50);
-  }
+let invoke = _noopInvoke, emit = _noopEmit, httpFetch = null;
+function _assignTauriApis() {
+  const tauriApis = getTauriApis();
+  invoke = tauriApis.invoke || _noopInvoke;
+  emit = tauriApis.emit || _noopEmit;
+  httpFetch = tauriApis.httpFetch || null;
 }
 
-let invoke, emit, httpFetch;
-waitForTauri(() => {
-  invoke = window.__TAURI__.tauri.invoke;
-  emit = window.__TAURI__.event.emit;
-  httpFetch = window.__TAURI__.http.fetch;
+function _waitForTauriReady(timeoutMs = 2500) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      const apis = getTauriApis();
+      if (apis.invoke || Date.now() - startedAt >= timeoutMs) {
+        resolve(!!apis.invoke);
+        return;
+      }
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+
+function _runManagerBootstrap() {
+  _assignTauriApis();
 
   const run = () => {
     if (_managerInitStarted) return;
@@ -142,7 +155,14 @@ waitForTauri(() => {
   } else {
     run();
   }
-});
+}
+
+async function bootManagerApp() {
+  if (_managerBootstrapStarted) return;
+  _managerBootstrapStarted = true;
+  await _waitForTauriReady();
+  _runManagerBootstrap();
+}
 
 // ---------- 配置 ----------
 // SERVER_URL 从 config.js 中导入
@@ -162,7 +182,7 @@ const state = {
   showPnl: false,
   selectedPnlWarehouses: [],
   refreshInterval: 5000,
-  serverUrl: (typeof SERVER_URL !== 'undefined' ? SERVER_URL : ''),
+  serverUrl: SERVER_URL,
   autoStart: false,
 };
 
@@ -174,12 +194,16 @@ let _ticketTargetId = null;
 let _ticketUnreadCount = 0;
 let _ticketUnreadPollInitialized = false;
 let _lastTicketRefreshAt = 0;
+let _availableUpdateInfo = null;
+let _updatePromptDismissedVersion = '';
+let _updatePromptShownOnStartupVersion = '';
 const _managerLogFlags = Object.create(null);
 let _lastManagerConfigNotifySignature = '';
 let _connectionOnline = false;
+let _managerBootstrapStarted = false;
 
 function _ticketApiBase() {
-  const base = String(typeof TICKET_SERVER_URL !== 'undefined' ? TICKET_SERVER_URL : '').trim();
+  const base = String(TICKET_SERVER_URL || '').trim();
   return base.replace(/\/+$/, '');
 }
 
@@ -204,24 +228,7 @@ async function _syncClientIdentity() {
 }
 
 async function appLog(level, moduleName, event, message, context = null) {
-  try {
-    await invoke('append_client_log', {
-      level,
-      module: moduleName,
-      event,
-      message,
-      context
-    });
-  } catch (_) {}
-}
-
-function _getClientRuntimeSummary() {
-  return {
-    platform: navigator.platform || 'unknown',
-    language: navigator.language || '',
-    webviewDetected: !!window.chrome?.webview,
-    devicePixelRatio: window.devicePixelRatio || 1,
-  };
+  await appendClientLog(invoke, level, moduleName, event, message, context);
 }
 
 function _markManagerLogFlag(key) {
@@ -298,14 +305,14 @@ async function _appendTicketSeedLogs({ identity, includeLogs, title, email }) {
   };
   await appLog('info', 'ticket', 'submit_started', 'ticket submit started', {
     ...sharedContext,
-    ..._getClientRuntimeSummary(),
+    ...getClientRuntimeSummary(),
     ..._getBubbleConfigSummary(),
     ..._getManagerDataSummary(),
   });
   if (includeLogs) {
     await appLog('info', 'ticket', 'include_logs_enabled', 'ticket include logs enabled', {
       ...sharedContext,
-      ..._getClientRuntimeSummary(),
+      ...getClientRuntimeSummary(),
       ..._getBubbleConfigSummary(),
       ..._getManagerDataSummary(),
     });
@@ -330,7 +337,7 @@ function _buildFallbackTicketLog({ identity, includeLogs, title, email }) {
       hasLegacyClientId: !!identity?.legacy_client_id,
       bubble: _getBubbleConfigSummary(),
       manager: _getManagerDataSummary(),
-      clientRuntime: _getClientRuntimeSummary(),
+      clientRuntime: getClientRuntimeSummary(),
     },
     app_version: localStorage.getItem('appVersion') || '',
   };
@@ -339,11 +346,11 @@ function _buildFallbackTicketLog({ identity, includeLogs, title, email }) {
 
 // ========== 工具函数 ==========
 function getCurrency(code) {
-  return DataSource.getCurrency(code);
+  return dataSource.getCurrency(code);
 }
 
 function getDisplayName(code, apiName) {
-  return DataSource.getDisplayName(code, apiName);
+  return dataSource.getDisplayName(code, apiName);
 }
 
 function fmt(v, decimals = 2) {
@@ -364,9 +371,9 @@ function escapeHtml(text) {
 
 // ========= 仓库统计信息显示 =========
 function updateWarehouseSummaryDisplay() {
-  if (!window.warehouseModule || !window.warehouseModule.getWarehouseSummary) return;
+  if (!warehouseModule || !warehouseModule.getWarehouseSummary) return;
   
-  const summary = window.warehouseModule.getWarehouseSummary();
+  const summary = warehouseModule.getWarehouseSummary();
   const pnlSummaryEl = document.getElementById('pnl-summary');
   
   if (pnlSummaryEl) {
@@ -384,8 +391,18 @@ function updateWarehouseSummaryDisplay() {
   }
 }
 
-// 使函数全局可用
-window.updateWarehouseSummaryDisplay = updateWarehouseSummaryDisplay;
+function refreshWarehouseViewFromLatestPrices() {
+  if (!warehouseModule) return;
+  const prices = Array.isArray(state.prices) ? state.prices : [];
+  if (typeof warehouseModule.refreshWarehouseView === 'function') {
+    warehouseModule.refreshWarehouseView(prices);
+    return;
+  }
+  warehouseModule.updatePrices?.(prices);
+  warehouseModule.renderWarehouseList?.();
+  warehouseModule.updateWarehouseRealTimeData?.();
+  updateWarehouseSummaryDisplay();
+}
 
 // ========== 数据持久化 ==========
 function loadState() {
@@ -411,7 +428,7 @@ function loadState() {
     state.bubbleOpacity = parseInt(localStorage.getItem('bubbleOpacity') || '100');
     state.showPnl = localStorage.getItem('showPnl') === 'true';
     state.selectedPnlWarehouses = JSON.parse(localStorage.getItem('pnl_selected_warehouses') || '[]');
-    state.serverUrl = normalizeServerUrl(localStorage.getItem('serverUrl') || (typeof SERVER_URL !== 'undefined' ? SERVER_URL : ''));
+    state.serverUrl = normalizeServerUrl(SERVER_URL);
     localStorage.setItem('serverUrl', state.serverUrl);
     localStorage.setItem('bubbleThemeColor', state.bubbleThemeColor);
     localStorage.removeItem('bubbleStealth');
@@ -457,9 +474,21 @@ async function saveState() {
   }
 }
 
+function applyBubbleConfigChange() {
+  saveState();
+  renderPreview();
+}
+
+function requestBubbleRefresh(reason = 'config_changed') {
+  try {
+    emit?.('bubble-refresh-now', { reason, ts: Date.now() });
+  } catch (_) {
+  }
+}
+
 // ========== SSE 长连接 ==========
 function _getApiBaseUrl() {
-  return normalizeServerUrl(typeof SERVER_URL !== 'undefined' ? SERVER_URL : '');
+  return normalizeServerUrl(SERVER_URL);
 }
 
 function _getSseBaseUrl() {
@@ -473,34 +502,38 @@ function _getFieldsUrl() {
 }
 
 function _getSelectableCodes() {
-  if (typeof DataSource === 'undefined' || typeof DataSource.getAllItems !== 'function') {
+  if (typeof dataSource.getAllItems !== 'function') {
     return [];
   }
-  if (typeof DataSource.hasSources === 'function' && !DataSource.hasSources()) {
+  if (typeof dataSource.hasSources === 'function' && !dataSource.hasSources()) {
     return [];
   }
-  return DataSource.getAllItems().map(item => item.code).filter(Boolean);
+  return dataSource.getAllItems().map(item => item.code).filter(Boolean);
 }
 
 function _normalizeSelectedCodes() {
   const original = Array.isArray(state.selectedCodes) ? state.selectedCodes.slice() : [];
   const selectable = new Set(_getSelectableCodes());
+  const maxRows = Math.max(1, Math.min(8, Number(state.bubbleRows) || 1));
+  state.prices.forEach((price) => {
+    if (price?.code) selectable.add(price.code);
+  });
   const normalized = [];
   const seen = new Set();
 
   original.forEach((code) => {
+    if (normalized.length >= maxRows) return;
     if (!code || seen.has(code)) return;
     if (selectable.size > 0 && !selectable.has(code)) return;
     seen.add(code);
     normalized.push(code);
   });
 
-  const limited = normalized.slice(0, Math.max(1, state.bubbleRows || 1));
   const changed =
-    limited.length !== original.length ||
-    limited.some((code, idx) => code !== original[idx]);
+    normalized.length !== original.length ||
+    normalized.some((code, idx) => code !== original[idx]);
 
-  if (changed) state.selectedCodes = limited;
+  if (changed) state.selectedCodes = normalized;
   return changed;
 }
 
@@ -566,17 +599,17 @@ function _processPriceSnapshot(prices, rawMessage) {
   if (!prices || prices.length === 0) return;
   clearManagedTimeout('manager-sse-first-payload-watchdog');
   state.prices = prices;
-  DataSource.savePrices(prices);
+  dataSource.savePrices(prices);
   if (localStorage.getItem('selectedCodes') === null && state.selectedCodes.length === 0) {
     state.selectedCodes = prices.slice(0, 2).map(p => p.code);
     saveState();
   }
   updatePriceValues(prices);
   _updateTodayCandle(prices);
-  if (window.warehouseModule) {
-    window.warehouseModule.updatePrices(prices);
-    if (window.warehouseModule.updateWarehouseRealTimeData) {
-      window.warehouseModule.updateWarehouseRealTimeData();
+  if (warehouseModule) {
+    warehouseModule.updatePrices(prices);
+    if (warehouseModule.updateWarehouseRealTimeData) {
+      warehouseModule.updateWarehouseRealTimeData();
     }
   }
   _broadcastPricesSnapshot(prices, rawMessage);
@@ -676,11 +709,11 @@ async function _consumeSseResponse(response) {
 
 async function _fetchFieldMap(options = {}) {
   try {
-    const map = await DataSource.ensureFieldMap(options);
+    const map = await dataSource.ensureFieldMap(options);
     if (!map || typeof map !== 'object') return;
     if (Object.keys(map).length > 0) {
       SSE_FIELD_MAP = map;
-      if (typeof DataSource !== 'undefined') DataSource.updateFromFieldMap(map);
+      dataSource.updateFromFieldMap(map);
     }
   } catch (_) {}
 }
@@ -757,7 +790,6 @@ function _connectSSE() {
     })
     .catch((error) => {
       if (controller.signal.aborted || _isExpectedAbortError(error) || _isPageUnloading) return;
-      console.error('[SSE] stream error:', error);
       appLog('error', 'manager', 'sse_stream_error', 'sse stream error', {
         message: String(error?.message || error || ''),
         ..._getManagerDataSummary(),
@@ -815,7 +847,7 @@ function updateTradingHoursTip() {}
 // ========== 价格数据处理 ==========
 async function fetchPrices() {
   updateTradingHoursTip();
-  if (!DataSource.isTradingTime()) {
+  if (!dataSource.isTradingTime()) {
     if (state.prices.length > 0) {
       updatePriceValues(state.prices);
     }
@@ -823,7 +855,7 @@ async function fetchPrices() {
   }
   try {
     // 每个数据源响应后立即热更新 manager UI，不通知气泡（避免气泡频繁重建）
-    const prices = await DataSource.crawlAll((partial) => {
+    const prices = await dataSource.crawlAll((partial) => {
       if (!partial || partial.length === 0) return;
       state.prices = partial;
       updatePriceValues(partial);
@@ -839,7 +871,7 @@ async function fetchPrices() {
 
     // 仅当用户从未保存过选择时（真正首次使用）才自动勾选前两个
     if (localStorage.getItem('selectedCodes') === null) {
-      state.selectedCodes = DataSource.getFirstKeys(2);
+      state.selectedCodes = dataSource.getFirstKeys(2);
       saveState();
       // 卡片可能已由 partial 回调渲染（彼时 selectedCodes 为空），补设选中状态
       const container = document.getElementById('price-select-list');
@@ -855,7 +887,7 @@ async function fetchPrices() {
       }
     }
 
-    DataSource.savePrices(prices);
+    dataSource.savePrices(prices);
     _broadcastPricesSnapshot(prices);
 
     // 最终热更新数值，然后按数据源顺序重排卡片（仅移动节点，不重建）
@@ -864,10 +896,10 @@ async function fetchPrices() {
 
     _setConnectionOnline(true, 'manual_prices_ready');
 
-    if (window.warehouseModule) {
-      window.warehouseModule.updatePrices(prices);
-      if (window.warehouseModule.updateWarehouseRealTimeData) {
-        window.warehouseModule.updateWarehouseRealTimeData();
+    if (warehouseModule) {
+      warehouseModule.updatePrices(prices);
+      if (warehouseModule.updateWarehouseRealTimeData) {
+        warehouseModule.updateWarehouseRealTimeData();
       }
     }
 
@@ -883,6 +915,7 @@ function switchView(viewId) {
   // 添加 view- 前缀（如果没有的话）
   const fullViewId = viewId.startsWith('view-') ? viewId : `view-${viewId}`;
   const wasChartActive = !!document.getElementById('view-chart')?.classList.contains('active');
+  const wasSettingsActive = !!document.getElementById('view-settings')?.classList.contains('active');
   
   // 隐藏所有视图
   document.querySelectorAll('.view').forEach(view => {
@@ -925,17 +958,19 @@ function switchView(viewId) {
   }
 
   if (fullViewId === 'view-store' || viewId === 'store') {
-    updateWarehouseSummaryDisplay();
+    refreshWarehouseViewFromLatestPrices();
   }
 
   if (fullViewId === 'view-settings' || viewId === 'settings') {
     _refreshTicketList();
+  } else if (wasSettingsActive) {
+    _setUpdateResultMessage('');
   }
 
-  if ((fullViewId === 'view-chart' || viewId === 'chart') && window.chartModule) {
-    window.chartModule.onViewActivated();
-  } else if (wasChartActive && window.chartModule?.onViewDeactivated) {
-    window.chartModule.onViewDeactivated();
+  if (fullViewId === 'view-chart' || viewId === 'chart') {
+    chartModule.onViewActivated();
+  } else if (wasChartActive && chartModule?.onViewDeactivated) {
+    chartModule.onViewDeactivated();
   }
 }
 
@@ -954,11 +989,11 @@ function renderPriceListLoading() {
 
 function renderPriceListPlaceholders() {
   const container = document.getElementById('price-select-list');
-  if (!container || state.prices.length > 0 || !DataSource.hasSources()) return;
-  const items = DataSource.getAllItems();
+  if (!container || state.prices.length > 0 || !dataSource.hasSources()) return;
+  const items = dataSource.getAllItems();
   if (!items.length) return;
   if (localStorage.getItem('selectedCodes') === null && state.selectedCodes.length === 0) {
-    state.selectedCodes = DataSource.getFirstKeys(2);
+    state.selectedCodes = dataSource.getFirstKeys(2);
     saveState();
   }
   container.innerHTML = '';
@@ -1020,7 +1055,7 @@ function _sortPriceCards() {
   });
 
   // 按数据源定义顺序依次 appendChild（移动到末尾），最终顺序与数据源一致
-  const orderedCodes = DataSource.getAllItems().map(item => item.code);
+  const orderedCodes = dataSource.getAllItems().map(item => item.code);
   for (const code of orderedCodes) {
     const card = cardMap.get(code);
     if (card) container.appendChild(card);
@@ -1037,13 +1072,13 @@ function _todayStr() {
 
 // SSE 只做价格显示，不参与绘图
 function _updateTodayCandle(prices) {
-  if (!window.chartModule) return;
+  if (!chartModule) return;
   ['usd', 'cny'].forEach(market => {
     const entry = prices.find(p => p.code === TODAY_CODE[market]);
     if (!entry) return;
     const price = parseFloat(entry.price ?? entry.value);
     if (!isNaN(price) && price > 0) {
-      window.chartModule.updateLivePrice(price, market);
+      chartModule.updateLivePrice(price, market);
     }
   });
 }
@@ -1201,8 +1236,9 @@ function renderWarehousePnlList() {
           <input
             class="pnl-warehouse-checkbox"
             type="checkbox"
+            data-action="toggle-pnl-warehouse"
+            data-warehouse-id="${item.id}"
             ${state.selectedPnlWarehouses.includes(item.id) ? 'checked' : ''}
-            onchange="togglePnlWarehouse('${item.id}')"
           />
           <span class="pnl-warehouse-option-label">${item.name}</span>
         </label>
@@ -1221,9 +1257,20 @@ function togglePnlWarehouse(id) {
     state.selectedPnlWarehouses.push(id);
   }
 
-  saveState();
   renderWarehousePnlList();
-  renderPreview();
+  applyBubbleConfigChange();
+  requestBubbleRefresh('pnl_warehouse_selection_changed');
+}
+
+function bindWarehousePnlSelection() {
+  const container = document.getElementById('pnl-warehouse-select');
+  if (!container || container.dataset.boundPnlSelection === '1') return;
+  container.dataset.boundPnlSelection = '1';
+  container.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('[data-action="toggle-pnl-warehouse"]');
+    if (!checkbox || !container.contains(checkbox)) return;
+    togglePnlWarehouse(checkbox.dataset.warehouseId);
+  });
 }
 
 function loadWarehouses() {
@@ -1303,17 +1350,18 @@ function setupBubbleSettings() {
   const stepUp   = document.getElementById('rows-step-up');
   function _applyBubbleRows(newRows) {
     const clamped = Math.max(1, Math.min(8, newRows));
-    const oldRows = state.bubbleRows;
+    const beforeCount = state.selectedCodes.length;
     state.bubbleRows = clamped;
+    const selectionChanged = _normalizeSelectedCodes();
     if (stepVal) stepVal.textContent = clamped;
     if (stepDown) stepDown.disabled = clamped <= 1;
     if (stepUp)   stepUp.disabled   = clamped >= 8;
-    if (clamped < oldRows && state.selectedCodes.length > clamped) {
-      state.selectedCodes.splice(clamped);
-    }
     saveState();
     syncCardsUI();
     renderPreview();
+    if (selectionChanged && beforeCount > state.selectedCodes.length) {
+      showToast(`气泡上限已调整为 ${clamped} 个，已自动保留前 ${state.selectedCodes.length} 个选中项。`);
+    }
   }
   if (stepVal) {
     stepVal.textContent = state.bubbleRows;
@@ -1336,7 +1384,7 @@ function setupBubbleSettings() {
       saveState();
       setupTheme();
       renderPreview();
-      if (window.chartModule) window.chartModule.onThemeChange();
+      if (chartModule) chartModule.onThemeChange();
     });
   }
 
@@ -1364,8 +1412,8 @@ function setupBubbleSettings() {
       if (pnlSelectDiv) {
         pnlSelectDiv.style.display = e.target.checked ? 'block' : 'none';
       }
-      saveState();
-      renderPreview();
+      applyBubbleConfigChange();
+      requestBubbleRefresh('pnl_visibility_changed');
     });
     
     // 初始化时根据状态显示/隐藏仓库选择
@@ -1489,7 +1537,7 @@ function _renderTicketImages() {
   list.innerHTML = _ticketImages.map((file, index) => `
     <div class="ticket-image-chip">
       <img class="ticket-image-thumb" src="${escapeHtml(file.previewUrl || '')}" alt="${escapeHtml(file.name)}" />
-      <button class="ticket-image-remove" type="button" data-ticket-image-remove="${index}" aria-label="移除图片">×</button>
+      <button class="ticket-image-remove gp-icon-btn" type="button" data-ticket-image-remove="${index}" aria-label="移除图片">×</button>
     </div>
   `).join('');
   list.querySelectorAll('[data-ticket-image-remove]').forEach((btn) => {
@@ -2035,7 +2083,7 @@ function setupTheme() {
     saveState();
     document.body.setAttribute('data-theme', state.bubbleTheme);
     renderPreview();
-    if (window.chartModule) window.chartModule.onThemeChange();
+    if (chartModule) chartModule.onThemeChange();
   };
 
   const onMouseEnter = () => {
@@ -2173,11 +2221,11 @@ async function handleUpdateSources() {
   _updateSourcesCooldownUntil = now + UPDATE_SOURCES_COOLDOWN_MS;
   if (btn) { btn.disabled = true; btn.textContent = '连接中...'; }
   try {
-    const fieldMapTask = DataSource.ensureFieldMap({ force: true })
+    const fieldMapTask = dataSource.ensureFieldMap({ force: true })
       .then((map) => {
         if (map && typeof map === 'object' && Object.keys(map).length > 0) {
           SSE_FIELD_MAP = map;
-          DataSource.updateFromFieldMap(map);
+          dataSource.updateFromFieldMap(map);
           renderPriceListPlaceholders();
         }
       })
@@ -2219,23 +2267,97 @@ function semverLt(a, b) {
 }
 
 function _setAppUpdateDot(visible) {
-  const d1 = document.getElementById('app-update-dot');
   const d2 = document.getElementById('app-update-dot-settings');
-  if (d1) d1.style.display = visible ? '' : 'none';
   if (d2) d2.style.display = visible ? '' : 'none';
+  const sidebarDot = document.getElementById('app-update-dot-sidebar');
+  if (sidebarDot) sidebarDot.style.display = visible ? '' : 'none';
 }
 
-function _clearPendingUpdate() {
-  localStorage.removeItem('pendingUpdatePath');
-  localStorage.removeItem('pendingUpdateVersion');
+function _getUpdaterApis() {
+  const tauriApis = getTauriApis();
+  return {
+    checkUpdater: tauriApis.checkUpdater,
+    installUpdater: tauriApis.installUpdater,
+    onUpdaterEvent: tauriApis.onUpdaterEvent,
+  };
 }
 
-function _cleanupUpdateDownloads(keepPath = '') {
-  try {
-    return invoke('cleanup_update_downloads_cmd', { keepPath: keepPath || null });
-  } catch (_) {
-    return Promise.resolve();
+function _normalizeUpdaterManifest(updateResult) {
+  const manifest = updateResult?.manifest || null;
+  if (!updateResult?.shouldUpdate || !manifest?.version) return null;
+  return {
+    version: String(manifest.version || '').trim(),
+    notes: String(manifest.body || '').trim(),
+    pub_date: String(manifest.date || '').trim(),
+  };
+}
+
+function _formatUpdateDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toISOString().slice(0, 10);
+}
+
+function _updateSettingsUpdatePanel(updateInfo, currentVersion = '') {
+  const availableLabel = document.getElementById('update-available-label');
+  if (availableLabel) availableLabel.style.display = updateInfo?.version ? '' : 'none';
+}
+
+function _setUpdateResultMessage(message, isError = false) {
+  const resultEl = document.getElementById('check-update-result');
+  if (!resultEl) return;
+  resultEl.textContent = message || '';
+  resultEl.classList.toggle('is-error', !!isError);
+  resultEl.classList.toggle('text-danger', !!isError);
+  resultEl.classList.toggle('text-secondary', !isError);
+}
+
+function _setUpdateInstallUi(active, label = '立即更新') {
+  const nowBtn = document.getElementById('post-download-now');
+  const cancelBtn = document.getElementById('post-download-later');
+  const closeBtn = document.getElementById('post-download-close');
+  if (nowBtn) {
+    nowBtn.disabled = !!active;
+    nowBtn.textContent = label;
   }
+  if (cancelBtn) cancelBtn.disabled = !!active;
+  if (closeBtn) closeBtn.disabled = !!active;
+}
+
+async function _queryUpdaterUpdate() {
+  const { checkUpdater } = _getUpdaterApis();
+  if (typeof checkUpdater !== 'function') throw new Error('updater api unavailable');
+  return await checkUpdater();
+}
+
+async function _ensureUpdaterListener() {
+  if (_updaterEventUnlisten) return;
+  const { onUpdaterEvent } = _getUpdaterApis();
+  if (typeof onUpdaterEvent !== 'function') return;
+  _updaterEventUnlisten = await onUpdaterEvent(({ error, status }) => {
+    if (error) {
+      _activeUpdateInstallInFlight = false;
+      _setUpdateInstallUi(false, '重试更新');
+      _setUpdateResultMessage(`更新失败：${error}`, true);
+      return;
+    }
+    if (status === 'PENDING') {
+      _setUpdateInstallUi(true, '更新进行中…');
+      return;
+    }
+    if (status === 'DONE') {
+      _activeUpdateInstallInFlight = false;
+      _setUpdateInstallUi(true, '更新完成');
+      return;
+    }
+    if (status === 'UPTODATE') {
+      _activeUpdateInstallInFlight = false;
+      _availableUpdateInfo = null;
+      _updateSettingsUpdatePanel(null, localStorage.getItem('appVersion') || '');
+      _setAppUpdateDot(false);
+    }
+  });
 }
 
 async function checkForUpdate() {
@@ -2250,363 +2372,105 @@ async function checkForUpdate() {
     const appVersionEl = document.getElementById('app-version');
     if (appVersionEl) appVersionEl.textContent = 'v' + currentVersion;
 
-    const banner = document.getElementById('update-banner');
+    await _ensureUpdaterListener();
+    const updateResult = await _queryUpdaterUpdate();
+    const updateInfo = _normalizeUpdaterManifest(updateResult);
 
-    // 每次都请求 /version，避免用心跳或本地待安装记录里的旧版本号拼下载链接。
-    const updateInfo = await DataSource.checkUpdate();
-    if (updateInfo && updateInfo.v && semverLt(currentVersion, updateInfo.v)) {
-      const pendingVersion = localStorage.getItem('pendingUpdateVersion') || '';
-      const pendingPath = localStorage.getItem('pendingUpdatePath') || '';
-      if (pendingPath && pendingVersion === updateInfo.v) {
-        _showInstallBanner(updateInfo.v);
-        _setAppUpdateDot(true);
-        return;
-      }
-      if (pendingPath) _clearPendingUpdate();
-
-      const updateVersionEl = document.getElementById('update-version');
-      if (banner && updateVersionEl) {
-        updateVersionEl.textContent = 'v' + updateInfo.v;
-        banner.style.display = 'block';
-        banner._updateInfo = updateInfo;
-        _setAppUpdateDot(true);
+    if (updateInfo && semverLt(currentVersion, updateInfo.version)) {
+      _availableUpdateInfo = updateInfo;
+      _updateSettingsUpdatePanel(updateInfo, currentVersion);
+      _setAppUpdateDot(true);
+      _setUpdateResultMessage('');
+      if (_updatePromptShownOnStartupVersion !== updateInfo.version) {
+        _updatePromptShownOnStartupVersion = updateInfo.version;
+        _showUpdateConfirmDialog(updateInfo);
       }
     } else {
-      if (banner) banner.style.display = 'none';
+      _availableUpdateInfo = null;
+      _updateSettingsUpdatePanel(null, currentVersion);
       _setAppUpdateDot(false);
-      _clearPendingUpdate();
-      _cleanupUpdateDownloads();
+      _setUpdateResultMessage('当前已是最新版本');
     }
-  } catch (_) {}
-}
-
-function _showInstallBanner(version) {
-  const banner = document.getElementById('update-banner');
-  const updateVersionEl = document.getElementById('update-version');
-  const downloadBtn = document.getElementById('download-update-btn');
-  if (!banner) return;
-  if (updateVersionEl && version) updateVersionEl.textContent = 'v' + version;
-  if (downloadBtn) {
-    downloadBtn.textContent = '安装更新';
-    downloadBtn.dataset.mode = 'install';
-    downloadBtn.style.display = '';
+  } catch (e) {
+    _setUpdateResultMessage('检查更新失败：' + (e?.message || e), true);
   }
-  banner.style.display = 'block';
-}
-
-function _buildUpdateDownloadUrl(version) {
-  const base = String(typeof COS_APK !== 'undefined' ? COS_APK : '').replace(/\/+$/, '');
-  if (!base || !version) return '';
-  return `${base}/GoldPrice_${version}_x64-setup.exe`;
-}
-
-function _appendDownloadCacheBust(url, version) {
-  try {
-    const finalUrl = new URL(url);
-    finalUrl.searchParams.set('v', String(version || ''));
-    finalUrl.searchParams.set('_ts', String(Date.now()));
-    return finalUrl.toString();
-  } catch (_) {
-    const sep = String(url).includes('?') ? '&' : '?';
-    return `${url}${sep}v=${encodeURIComponent(version || '')}&_ts=${Date.now()}`;
-  }
-}
-
-function _newDownloadId() {
-  return `dl-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-async function cancelActiveDownload() {
-  const downloadId = _activeDownloadId;
-  if (!downloadId) return;
-  _downloadCancelled = true;
-  _activeDownloadId = null;
-  try { await invoke('cancel_download_update', { downloadId }); } catch (_) {}
-  const progress = document.getElementById('download-progress');
-  const btn = document.getElementById('download-update-btn');
-  if (progress) progress.style.display = 'none';
-  if (btn) {
-    btn.style.display = '';
-    btn.disabled = false;
-    btn.dataset.mode = '';
-    btn.textContent = '重新下载';
-  }
-  _showDownloadError('下载已取消，可重新下载');
 }
 
 async function handleDownloadUpdate() {
-  const btn = document.getElementById('download-update-btn');
-
-  if (btn && btn.dataset.mode === 'install') {
-    const pending = localStorage.getItem('pendingUpdatePath');
-    const pendingVersion = localStorage.getItem('pendingUpdateVersion') || '';
-    if (!pending) {
-      _clearPendingUpdate();
-      _cleanupUpdateDownloads();
-      btn.dataset.mode = '';
-      btn.textContent = '下载更新';
-      return;
-    }
-    if (btn) { btn.disabled = true; btn.textContent = '检查中…'; }
-    try {
-      const latest = await DataSource.checkUpdate();
-      const currentVersion = localStorage.getItem('appVersion') || '0.0.0';
-      if (!latest?.v) {
-        _clearPendingUpdate();
-        _cleanupUpdateDownloads();
-        btn.dataset.mode = '';
-        btn.disabled = false;
-        btn.textContent = '下载更新';
-        const banner = document.getElementById('update-banner');
-        if (banner) banner.style.display = 'none';
-        _setAppUpdateDot(false);
-        return;
-      }
-      if (latest?.v && semverLt(currentVersion, latest.v) && latest.v !== pendingVersion) {
-        _clearPendingUpdate();
-        _cleanupUpdateDownloads();
-        btn.dataset.mode = '';
-        btn.disabled = false;
-        btn.textContent = '下载更新';
-        const banner = document.getElementById('update-banner');
-        const updateVersionEl = document.getElementById('update-version');
-        if (banner && updateVersionEl) {
-          updateVersionEl.textContent = 'v' + latest.v;
-          banner.style.display = 'block';
-          banner._updateInfo = latest;
-          _setAppUpdateDot(true);
-        }
-        _showDownloadError('已有安装包不是最新版本，请重新下载');
-        return;
-      }
-    } catch (_) {
-      if (btn) { btn.disabled = false; btn.textContent = '安装更新'; }
-      _showDownloadError('无法确认最新版本，请稍后重试');
-      return;
-    }
-    if (btn) { btn.disabled = false; btn.textContent = '安装更新'; }
-    try {
-      await invoke('install_update', { path: pending });
-    } catch (e) {
-      _clearPendingUpdate();
-      _cleanupUpdateDownloads();
-      btn.dataset.mode = '';
-      btn.textContent = '下载更新';
-      alert('安装失败，请重新下载: ' + e.message);
-    }
-    return;
-  }
-
-  const banner = document.getElementById('update-banner');
-  if (!banner || !banner._updateInfo) return;
-
-  if (btn) { btn.disabled = true; btn.textContent = '检查中…'; }
-  let info;
-  try {
-    const latest = await DataSource.checkUpdate();
-    const currentVersion = localStorage.getItem('appVersion') || '0.0.0';
-    if (latest && latest.v && semverLt(currentVersion, latest.v)) {
-      info = latest;
-      banner._updateInfo = latest;
-      const updateVersionEl = document.getElementById('update-version');
-      if (updateVersionEl) updateVersionEl.textContent = 'v' + latest.v;
-    } else {
-      banner.style.display = 'none';
-      _setAppUpdateDot(false);
-      if (btn) { btn.disabled = false; btn.textContent = '下载更新'; }
-      return;
-    }
-  } catch (_) {
-    _showDownloadError('无法确认最新版本，请稍后重试');
-    if (btn) { btn.disabled = false; btn.textContent = '下载更新'; }
-    return;
-  }
-  if (btn) { btn.disabled = false; btn.textContent = '下载更新'; }
-
-  const progress = document.getElementById('download-progress');
-  const progressBar = document.getElementById('download-progress-bar');
-  const cancelBtn = document.getElementById('download-cancel-btn');
-
-  if (btn) btn.style.display = 'none';
-  if (progress) progress.style.display = 'block';
-  if (cancelBtn) cancelBtn.style.display = '';
-
-  const pctEl = document.getElementById('download-progress-pct');
-  if (progressBar) progressBar.style.width = '0%';
-  if (pctEl) pctEl.textContent = '连接中…';
-
-  const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000; // 总兜底，真实连接/首包超时由 Rust 侧处理
-  const TIMEOUT_ERR = '__DOWNLOAD_TIMEOUT__';
-  const CANCEL_ERR = '__DOWNLOAD_CANCELLED__';
-
-  let downloadSucceeded = false;
-  let unlisten = null;
-  const MAX_RETRIES = 3;
-  const downloadId = _newDownloadId();
-  _activeDownloadId = downloadId;
-  _downloadCancelled = false;
-  const downloadUrlBase = _buildUpdateDownloadUrl(info.v);
-  if (!downloadUrlBase) {
-    _activeDownloadId = null;
-    if (progress) progress.style.display = 'none';
-    if (btn) {
-      btn.style.display = '';
-      btn.disabled = false;
-      btn.textContent = '下载更新';
-    }
-    _showDownloadError('下载地址生成失败，请检查 COS_APK 配置');
-    return;
-  }
-  const downloadUrl = _appendDownloadCacheBust(downloadUrlBase, info.v);
-  const filename = `GoldPrice_${info.v}_x64-setup.exe`;
-  await _cleanupUpdateDownloads();
-  if (cancelBtn) {
-    cancelBtn.onclick = () => { cancelActiveDownload(); };
-  }
-
-  try {
-    if (window.__TAURI__?.event?.listen) {
-      unlisten = await window.__TAURI__.event.listen('download-progress', (event) => {
-        if (event.payload) {
-          if (event.payload.id && event.payload.id !== downloadId) return;
-          if (_activeDownloadId !== downloadId) return;
-          const pct = event.payload.percent || 0;
-          if (progressBar) progressBar.style.width = pct + '%';
-          if (pctEl) {
-            pctEl.textContent = event.payload.phase === 'connecting' ? '连接中…' : pct + '%';
-          }
-        }
-      });
-    }
-
-    let lastErr = null;
-    let path = null;
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      if (_downloadCancelled || _activeDownloadId !== downloadId) throw new Error(CANCEL_ERR);
-      if (attempt > 1) {
-        let remaining = 3;
-        if (pctEl) pctEl.textContent = `连接中断，${remaining}秒后重试(${attempt}/${MAX_RETRIES})…`;
-        let scanPct = 0, scanDir = 1;
-        const scanTimer = setInterval(() => {
-          scanPct += scanDir * 4;
-          if (scanPct >= 55) scanDir = -1;
-          if (scanPct <= 0) scanDir = 1;
-          if (progressBar) progressBar.style.width = scanPct + '%';
-        }, 80);
-        const countTimer = setInterval(() => {
-          remaining--;
-          if (pctEl && remaining > 0) pctEl.textContent = `连接中断，${remaining}秒后重试(${attempt}/${MAX_RETRIES})…`;
-        }, 1000);
-        await new Promise(r => setTimeout(r, 3000));
-        clearInterval(scanTimer);
-        clearInterval(countTimer);
-        if (progressBar) progressBar.style.width = '0%';
-        if (pctEl) pctEl.textContent = '0%';
-      }
-      try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(TIMEOUT_ERR)), DOWNLOAD_TIMEOUT_MS)
-        );
-        path = await Promise.race([
-          invoke('download_update', { url: downloadUrl, filename: filename, downloadId }),
-          timeoutPromise,
-        ]);
-        if (_downloadCancelled || _activeDownloadId !== downloadId) throw new Error(CANCEL_ERR);
-        lastErr = null;
-        break;
-      } catch (e) {
-        lastErr = e;
-        if (e.message === TIMEOUT_ERR || e.message === CANCEL_ERR || String(e.message || e).includes('取消')) break;
-      }
-    }
-
-    if (lastErr) throw lastErr;
-
-    if (progressBar) progressBar.style.width = '100%';
-    if (pctEl) pctEl.textContent = '100%';
-    if (progress) progress.style.display = 'none';
-    if (cancelBtn) cancelBtn.onclick = null;
-    downloadSucceeded = true;
-    _activeDownloadId = null;
-
-    _showPostDownloadDialog(path, info.v);
-  } catch (e) {
-    if (_activeDownloadId === downloadId) {
-      try { await invoke('cancel_download_update', { downloadId }); } catch (_) {}
-      _activeDownloadId = null;
-    }
-    if (progress) progress.style.display = 'none';
-    if (cancelBtn) cancelBtn.onclick = null;
-    if (e.message === CANCEL_ERR || String(e.message || e).includes('取消')) {
-      _showDownloadError('下载已取消，可重新下载');
-    } else if (e.message === TIMEOUT_ERR) {
-      _showDownloadError('当前下载新版本用户过多，请稍后重试');
-    } else {
-      _showDownloadError('下载失败：' + (e.message || e));
-    }
-  } finally {
-    if (unlisten) unlisten();
-    if (_activeDownloadId === downloadId) _activeDownloadId = null;
-    if (!downloadSucceeded && btn) {
-      btn.style.display = '';
-      btn.dataset.mode = '';
-      btn.disabled = false;
-      btn.textContent = _downloadCancelled ? '重新下载' : '下载更新';
-    }
+  if (_availableUpdateInfo && !_activeUpdateInstallInFlight) {
+    _updatePromptDismissedVersion = '';
+    _showUpdateConfirmDialog(_availableUpdateInfo);
   }
 }
 
-function _showDownloadError(msg) {
-  const banner = document.getElementById('update-banner');
-  if (!banner) return;
-  let errEl = banner.querySelector('.download-error-msg');
-  if (!errEl) {
-    errEl = document.createElement('div');
-    errEl.className = 'download-error-msg';
-    banner.appendChild(errEl);
-  }
-  errEl.textContent = msg;
-  errEl.style.display = 'block';
-  // 6 秒后自动隐藏
-  clearTimeout(errEl._hideTimer);
-  errEl._hideTimer = setTimeout(() => { errEl.style.display = 'none'; }, 6000);
-}
-
-function _showPostDownloadDialog(path, version) {
+function _showUpdateConfirmDialog(updateInfo) {
   const overlay = document.getElementById('post-download-overlay');
-  if (!overlay) {
-    // 降级：直接安装
-    invoke('install_update', { path }).catch(() => {});
+  if (!overlay || !updateInfo?.version) {
+    _startOfficialUpdate(updateInfo).catch(() => {});
     return;
   }
-  overlay.style.display = 'flex';
 
+  const currentVersion = localStorage.getItem('appVersion') || '0.0.0';
+  const titleEl = document.getElementById('post-download-title');
+  const metaEl = document.getElementById('post-download-meta');
+  const currentEl = document.getElementById('post-download-current-version');
+  const newEl = document.getElementById('post-download-new-version');
+  const bodyEl = document.getElementById('post-download-body');
+  const cancelBtn = document.getElementById('post-download-later');
   const nowBtn = document.getElementById('post-download-now');
-  const laterBtn = document.getElementById('post-download-later');
+  const closeBtn = document.getElementById('post-download-close');
 
-  const cleanup = () => { overlay.style.display = 'none'; };
+  if (titleEl) titleEl.textContent = '发现新版本';
+  if (metaEl) metaEl.textContent = _formatUpdateDate(updateInfo.pub_date);
+  if (currentEl) currentEl.textContent = `v${currentVersion}`;
+  if (newEl) newEl.textContent = `v${updateInfo.version}`;
+  if (bodyEl) bodyEl.textContent = updateInfo.notes || '暂无更新说明。';
 
-  nowBtn.onclick = async () => {
-    cleanup();
-    _clearPendingUpdate();
-    _setAppUpdateDot(false);
-    try {
-      await invoke('install_update', { path: path });
-    } catch (e) {
-      alert('安装失败: ' + e.message);
-      // 安装失败时恢复"安装更新"按钮
-      _showInstallBanner(version || '');
+  const close = () => {
+    _updatePromptDismissedVersion = updateInfo.version;
+    overlay.style.display = 'none';
+    _setAppUpdateDot(true);
+    _updateSettingsUpdatePanel(updateInfo, currentVersion);
+  };
+  const start = async () => {
+    overlay.style.display = 'none';
+    await _startOfficialUpdate(updateInfo);
+  };
+
+  if (cancelBtn) cancelBtn.onclick = close;
+  if (closeBtn) closeBtn.onclick = close;
+  if (nowBtn) nowBtn.onclick = start;
+  overlay.onclick = (event) => {
+    if (event.target === overlay) close();
+  };
+  overlay.style.display = 'flex';
+}
+
+async function _startOfficialUpdate(updateInfo) {
+  if (_activeUpdateInstallInFlight) return;
+
+  try {
+    const currentVersion = localStorage.getItem('appVersion') || '0.0.0';
+    const latest = updateInfo?.version ? updateInfo : _normalizeUpdaterManifest(await _queryUpdaterUpdate());
+    if (!latest || !semverLt(currentVersion, latest.version)) {
+      _availableUpdateInfo = null;
+      _updateSettingsUpdatePanel(null, currentVersion);
+      _setAppUpdateDot(false);
+      return;
     }
-  };
 
-  laterBtn.onclick = () => {
-    cleanup();
-    // 保留安装包路径，改变按钮状态
-    localStorage.setItem('pendingUpdatePath', path);
-    if (version) localStorage.setItem('pendingUpdateVersion', version);
-    _cleanupUpdateDownloads(path);
-    _showInstallBanner(version || '');
-  };
+    _activeUpdateInstallInFlight = true;
+    _setUpdateInstallUi(true, '更新进行中…');
+    _setUpdateResultMessage('正在通过官方更新器下载并安装…');
+
+    const { installUpdater } = _getUpdaterApis();
+    if (typeof installUpdater !== 'function') throw new Error('updater install api unavailable');
+    await installUpdater();
+  } catch (e) {
+    _activeUpdateInstallInFlight = false;
+    _setUpdateInstallUi(false, '重试更新');
+    _setUpdateResultMessage('更新失败：' + (e?.message || e), true);
+  }
 }
 
 function showToast(msg, { title = '提示', icon = 'ℹ️' } = {}) {
@@ -2628,24 +2492,11 @@ async function init() {
   _managerInitStarted = true;
   appLog('info', 'manager', 'init_started', 'manager init started', {
     appVersion: localStorage.getItem('appVersion') || '',
-    ..._getClientRuntimeSummary(),
+    ...getClientRuntimeSummary(),
   });
   loadState();
 
-  // 若屏幕装不下默认窗口，按比例缩小窗口尺寸（与 HTML 早期 zoom 保持一致）
-  const _appZoom = window.__appZoom || 1;
-  if (_appZoom < 0.995) {
-    try {
-      const _win = window.__TAURI__?.window?.getCurrent?.();
-      if (_win) {
-        const _LogicalSize = window.__TAURI__.window.LogicalSize;
-        await _win.setSize(new _LogicalSize(
-          Math.round(1200 * _appZoom),
-          Math.round(800 * _appZoom)
-        ));
-      }
-    } catch (_) {}
-  }
+  invoke('fit_manager_window').catch(() => {});
   invoke('fix_manager_dpi').catch(() => {});
 
   document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -2660,7 +2511,7 @@ async function init() {
   });
 
   // 自定义窗口控制按钮（无系统标题栏）
-  const _appWin = window.__TAURI__?.window?.getCurrent?.();
+  const _appWin = getTauriApis().currentWindow;
   const _setWcMaxIcon = (maximized) => {
     const wcMaxBtn = document.getElementById('wc-max');
     if (!wcMaxBtn) return;
@@ -2687,36 +2538,41 @@ async function init() {
     });
   }
 
-  // 初始化 DataSource（同步，不阻塞）
-  DataSource.init(httpFetch, state.serverUrl);
-  DataSource.ensureFieldMap().then(() => {
-    if (window.warehouseModule) {
-      window.warehouseModule.renderWarehouseList();
+  // 初始化 dataSource（同步，不阻塞）
+  dataSource.setLogger((level, event, message, context) => appLog(level, 'datasource', event, message, context));
+  dataSource.init(httpFetch, SERVER_URL);
+  chartModule.configure?.({
+    httpFetch,
+    logger: (level, event, message, context) => appLog(level, 'kline_cache', event, message, context),
+  });
+  dataSource.ensureFieldMap().then(() => {
+    if (warehouseModule) {
+      warehouseModule.renderWarehouseList();
     }
     renderWarehousePnlList();
   }).catch(() => {});
-  _cleanupUpdateDownloads(localStorage.getItem('pendingUpdatePath') || '');
-
   // ── 第一步：立即完成所有同步 UI 初始化，保证交互可用 ──
   document.body.setAttribute('data-theme', state.bubbleTheme);
   document.body.setAttribute('data-theme-color', state.bubbleThemeColor || 'blue');
   setupTheme();
   setupBubbleSettings();
   renderWarehousePnlList();
+  bindWarehousePnlSelection();
   updateSourcesLastUpdateLabel();
   const fetchRateEl = document.getElementById('fetch-rate-sec');
   if (fetchRateEl) fetchRateEl.textContent = Math.round(state.refreshInterval / 1000);
 
-  if (window.warehouseModule) {
-    window.warehouseModule.renderWarehouseList();
+  if (warehouseModule) {
+    warehouseModule.renderWarehouseList();
   }
+  warehouseModule.setWarehouseCallbacks({
+    notifySummary: updateWarehouseSummaryDisplay,
+  });
+  bindWarehouseInteractions();
 
   // 价格列表先显示加载占位
   renderPriceListLoading();
   setupPriceSelectionInteractions();
-  setManagedTimeout('manager-first-screen-server-message', () => {
-    checkAndShowServerMessage();
-  }, 0);
 
   // 设置导航
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -2744,8 +2600,8 @@ async function init() {
   const newWarehouseBtn = document.getElementById('new-warehouse-btn');
   if (newWarehouseBtn) {
     newWarehouseBtn.addEventListener('click', () => {
-      if (window.warehouseModule) {
-        window.warehouseModule.showNewWarehouseForm();
+      if (warehouseModule) {
+        warehouseModule.showNewWarehouseForm();
       }
     });
   }
@@ -2754,46 +2610,34 @@ async function init() {
   window.addEventListener('warehousesChanged', () => {
     renderWarehousePnlList();
     updatePnlSummary();
-    renderPreview();
+    applyBubbleConfigChange();
+    requestBubbleRefresh('warehouses_changed');
   });
-
-  // 下载更新按钮
-  const downloadUpdateBtn = document.getElementById('download-update-btn');
-  if (downloadUpdateBtn) {
-    downloadUpdateBtn.addEventListener('click', handleDownloadUpdate);
-  }
 
   // 检查更新按钮
   const checkUpdateBtn = document.getElementById('check-update-btn');
   if (checkUpdateBtn) {
     checkUpdateBtn.addEventListener('click', async () => {
-      const resultEl = document.getElementById('check-update-result');
       checkUpdateBtn.disabled = true;
-      if (resultEl) resultEl.textContent = '检查中…';
+      _setUpdateResultMessage('检查中…');
       try {
         const currentVersion = localStorage.getItem('appVersion');
-        const updateInfo = await DataSource.checkUpdate();
-        if (currentVersion && currentVersion !== '0.0.0' && updateInfo && updateInfo.v && semverLt(currentVersion, updateInfo.v)) {
-          if (resultEl) resultEl.textContent = '发现新版本 v' + updateInfo.v + '，请前往侧边栏下载';
-          // 同时触发侧边栏显示
-          const banner = document.getElementById('update-banner');
-          const updateVersionEl = document.getElementById('update-version');
-          if (banner && updateVersionEl) {
-            updateVersionEl.textContent = 'v' + updateInfo.v;
-            banner.style.display = 'block';
-            banner._updateInfo = updateInfo;
-            _setAppUpdateDot(true);
-          }
+        const updateInfo = _normalizeUpdaterManifest(await _queryUpdaterUpdate());
+        if (currentVersion && currentVersion !== '0.0.0' && updateInfo && semverLt(currentVersion, updateInfo.version)) {
+          _setUpdateResultMessage('');
+          _availableUpdateInfo = updateInfo;
+          _updateSettingsUpdatePanel(updateInfo, currentVersion);
+          _setAppUpdateDot(true);
+          _updatePromptDismissedVersion = '';
+          _showUpdateConfirmDialog(updateInfo);
         } else {
-          if (resultEl) resultEl.textContent = '当前已是最新版本';
-          // 隐藏横幅，清除遗留的待安装记录
-          const banner2 = document.getElementById('update-banner');
-          if (banner2) banner2.style.display = 'none';
+          _setUpdateResultMessage('当前已是最新版本');
+          _availableUpdateInfo = null;
+          _updateSettingsUpdatePanel(null, currentVersion || '');
           _setAppUpdateDot(false);
-          _clearPendingUpdate();
         }
       } catch (_) {
-        if (resultEl) resultEl.textContent = '检查失败，请稍后重试';
+        _setUpdateResultMessage('检查失败，请稍后重试', true);
       } finally {
         checkUpdateBtn.disabled = false;
       }
@@ -2817,8 +2661,8 @@ async function init() {
   }
 
   // 监听来自托盘的开机自启状态变化
-  if (window.__TAURI__?.event?.listen) {
-    const listenFn = window.__TAURI__.event.listen;
+  if (getTauriApis().listen) {
+    const listenFn = getTauriApis().listen;
     const unlisten = await listenFn('auto-start-changed', (event) => {
       const enabled = event.payload;
       state.autoStart = enabled;
@@ -2891,9 +2735,8 @@ async function _initAsync() {
 
   setManagedTimeout('manager-warehouse-summary', () => updateWarehouseSummaryDisplay(), 300);
   setManagedTimeout('manager-check-update', () => checkForUpdate(), 3000);
-  setManagedTimeout('manager-server-message-refresh', () => checkAndShowServerMessage(), 1500);
   setManagedTimeout('manager-heartbeat', async () => {
-    await DataSource.sendHeartbeat();
+    await dataSource.sendHeartbeat();
   }, 8500);
 }
 
@@ -2955,46 +2798,5 @@ function showEula(onAccept) {
   rejectBtn.addEventListener('click', rejectBtn._eulaClickHandler);
 }
 
-// ========== 服务器通知弹窗 ==========
-async function checkAndShowServerMessage() {
-  try {
-    const msg = await DataSource.checkMessage();
-    if (!msg) return;
-    showServerMessage(msg);
-  } catch (_) {
-  }
-}
-
-function showServerMessage(msg) {
-  const overlay = document.getElementById('server-message-overlay');
-  const titleEl = document.getElementById('server-message-title');
-  const bodyEl = document.getElementById('server-message-body');
-  const urlEl = document.getElementById('server-message-url');
-  const closeBtn = document.getElementById('server-message-close');
-
-  if (!overlay) return;
-
-  titleEl.textContent = msg.title || '通知';
-  bodyEl.textContent = msg.body || '';
-
-  if (msg.url) {
-    urlEl.href = msg.url;
-    urlEl.style.display = 'inline-flex';
-  } else {
-    urlEl.style.display = 'none';
-  }
-
-  overlay.style.display = 'flex';
-
-  const dismiss = () => {
-    overlay.style.display = 'none';
-    DataSource.markMessageSeen(msg.id);
-  };
-  if (closeBtn._serverDismissHandler) closeBtn.removeEventListener('click', closeBtn._serverDismissHandler);
-  closeBtn._serverDismissHandler = dismiss;
-  closeBtn.addEventListener('click', dismiss);
-}
-
 // ========== 全局函数（供 HTML onclick 调用）==========
-window.togglePriceSelection = togglePriceSelection;
-window.togglePnlWarehouse = togglePnlWarehouse;
+export { bootManagerApp };

@@ -1,3 +1,5 @@
+import dataSource from './datasource.js';
+
 // =========================
 // warehouse.js - 仓库管理模块（重写 - 简洁版）
 // =========================
@@ -6,6 +8,7 @@ let PRICES = [];
 let currentWarehouseId = null;
 const HISTORY_VERSION = 2;
 const MAX_HISTORY_ITEMS = 300;
+let _notifySummary = null;
 
 function _trimWarehouseHistory(warehouse) {
   const history = Array.isArray(warehouse.history) ? warehouse.history : [];
@@ -59,9 +62,7 @@ function saveWarehouses(list) {
 // 工具函数
 // ============================================
 function getCurrency(code) {
-  if (typeof DataSource !== 'undefined') {
-    return DataSource.getCurrency(code);
-  }
+  if (dataSource) return dataSource.getCurrency(code);
   if (code === 'CALC_NY_LON_DIFF_PCT') return '%';
   return '$';
 }
@@ -85,10 +86,8 @@ function formatDateTime(timestamp) {
 
 // 获取显示名称
 function getDisplayName(code) {
-  if (typeof DataSource !== 'undefined') {
-    const mapped = DataSource.getDisplayName(code, '');
-    if (mapped && mapped !== code) return mapped;
-  }
+  const mapped = dataSource.getDisplayName(code, '');
+  if (mapped && mapped !== code) return mapped;
   const p = PRICES.find(p => p.code === code);
   if (p && p.name) return p.name;
   return code;
@@ -98,18 +97,16 @@ function getRefPriceItems() {
   const items = [];
   const seen = new Set();
 
-  if (typeof DataSource !== 'undefined') {
-    DataSource.getAllItems()
-      .filter(item => getCurrency(item.code) === '¥')
-      .forEach((item) => {
-        if (seen.has(item.code)) return;
-        seen.add(item.code);
-        items.push({
-          code: item.code,
-          name: getDisplayName(item.code),
-        });
+  dataSource.getAllItems()
+    .filter(item => getCurrency(item.code) === '¥')
+    .forEach((item) => {
+      if (seen.has(item.code)) return;
+      seen.add(item.code);
+      items.push({
+        code: item.code,
+        name: getDisplayName(item.code),
       });
-  }
+    });
 
   PRICES
     .filter(p => getCurrency(p.code) === '¥')
@@ -165,11 +162,10 @@ function renderWarehouseList() {
 
   // 新建仓库按钮（放在顶部）
   const newWarehouseBtn = `
-    <button class="warehouse-new-btn" onclick="warehouseModule.showNewWarehouseForm()">
+    <button class="warehouse-new-btn gp-btn-primary" data-action="show-new-warehouse">
       <span class="new-btn-icon">+</span>
       <span class="new-btn-copy">
         <span class="new-btn-text">新建仓库</span>
-        <span class="new-btn-subtext">创建新的持仓视图</span>
       </span>
     </button>
   `;
@@ -198,7 +194,7 @@ function renderWarehouseList() {
     return `
       <div class="warehouse-item ${currentWarehouseId === w.id ? 'active' : ''}" 
            data-id="${w.id}"
-           onclick="warehouseModule.selectWarehouse('${w.id}')">
+           data-action="select-warehouse">
         <div class="warehouse-item-top">
           <div class="warehouse-name">${w.name}</div>
           <div class="warehouse-item-badge">${getRefPriceLabel(w.refPrice)}</div>
@@ -225,9 +221,7 @@ function renderWarehouseList() {
   }
 
   // 通知manager更新统计信息
-  if (window.updateWarehouseSummaryDisplay) {
-    window.updateWarehouseSummaryDisplay();
-  }
+  _notifySummary?.();
 }
 
 // ============================================
@@ -264,12 +258,12 @@ function renderWarehouseDetail(id) {
           <h2 class="warehouse-title">${warehouse.name}</h2>
           <div class="warehouse-hero-meta">
             <span>参考金价：${getRefPriceLabel(warehouse.refPrice)}</span>
-            <span>当前价格：${fmt(currentPrice, 2)} ${currency}/g</span>
-            <span>收益率：${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%</span>
+            <span id="warehouse-hero-price-${id}">当前价格：${fmt(currentPrice, 2)} ${currency}/g</span>
+            <span id="warehouse-hero-pnl-pct-${id}">收益率：${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%</span>
           </div>
         </div>
         <div class="warehouse-hero-actions">
-          <button class="btn btn-danger btn-small" onclick="warehouseModule.deleteWarehouse('${id}')">删除仓库</button>
+          <button class="btn btn-danger btn-small gp-btn-danger" data-action="delete-warehouse" data-warehouse-id="${id}">删除仓库</button>
         </div>
       </div>
 
@@ -310,11 +304,11 @@ function renderWarehouseDetail(id) {
           <div class="form-row">
             <label>仓库名称</label>
             <input type="text" id="rename-input-${id}" placeholder="当前" value="${warehouse.name}">
-            <button class="btn btn-secondary btn-small" onclick="warehouseModule.renameWarehouse('${id}')">重命名</button>
+            <button class="btn btn-secondary btn-small gp-btn-secondary" data-action="rename-warehouse" data-warehouse-id="${id}">重命名</button>
           </div>
             <div class="form-row">
               <label>参考金价</label>
-              <select id="refprice-select-${id}" onchange="warehouseModule.changeRefPrice('${id}')">
+              <select id="refprice-select-${id}" data-action="change-refprice" data-warehouse-id="${id}">
                 ${getRefPriceItems().map(item => `
                   <option value="${item.code}" ${item.code === warehouse.refPrice ? 'selected' : ''}>
                     ${item.name}
@@ -335,11 +329,11 @@ function renderWarehouseDetail(id) {
             </div>
             <div class="form-row">
               <label>价格（¥/g）</label>
-              <input type="number" id="buy-price-${id}" placeholder="${fmt(currentPrice, 2)}" step="0.01" min="0" value="${fmt(currentPrice, 2)}">
+              <input type="number" id="buy-price-${id}" placeholder="${fmt(currentPrice, 2)}" step="0.01" min="0" value="${fmt(currentPrice, 2)}" data-auto-price="${fmt(currentPrice, 2)}">
             </div>
             <div class="form-row form-row-buttons">
-              <button class="btn btn-primary warehouse-btn-primary" onclick="warehouseModule.buy('${id}')">买入</button>
-              <button class="btn btn-danger" onclick="warehouseModule.sell('${id}')">卖出</button>
+              <button class="btn btn-primary gp-btn-primary warehouse-btn-primary" data-action="buy-warehouse" data-warehouse-id="${id}">买入</button>
+              <button class="btn btn-danger gp-btn-danger" data-action="sell-warehouse" data-warehouse-id="${id}">卖出</button>
             </div>
           </div>
         </div>
@@ -356,7 +350,7 @@ function renderWarehouseDetail(id) {
               <input type="number" id="adjust-cost-price-${id}" placeholder="${fmt(avgCost, 2)}" step="0.01" min="0">
             </div>
             <div class="form-row form-row-buttons">
-              <button class="btn btn-primary warehouse-btn-primary" onclick="warehouseModule.adjustPosition('${id}')">应用调整</button>
+              <button class="btn btn-primary gp-btn-primary warehouse-btn-primary" data-action="adjust-position" data-warehouse-id="${id}">应用调整</button>
             </div>
           </div>
         </div>
@@ -465,8 +459,8 @@ function showNewWarehouseForm() {
           <input type="number" id="new-warehouse-total-cost" placeholder="0.00" step="0.01" min="0">
         </div>
         <div class="form-row form-row-buttons">
-          <button class="btn btn-primary" onclick="warehouseModule.createWarehouse()">创建仓库</button>
-          <button class="btn btn-secondary" onclick="warehouseModule.cancelNewWarehouse()">取消</button>
+          <button class="btn btn-primary gp-btn-primary" data-action="create-warehouse">创建仓库</button>
+          <button class="btn btn-secondary gp-btn-secondary" data-action="cancel-new-warehouse">取消</button>
         </div>
       </div>
     </div>
@@ -878,17 +872,27 @@ function updateWarehouseRealTimeData() {
   const priceEl = document.getElementById(`warehouse-current-price-${currentWarehouseId}`);
   const pnlEl = document.getElementById(`warehouse-pnl-${currentWarehouseId}`);
   const valueEl = document.getElementById(`warehouse-value-${currentWarehouseId}`);
+  const heroPriceEl = document.getElementById(`warehouse-hero-price-${currentWarehouseId}`);
+  const heroPnlPctEl = document.getElementById(`warehouse-hero-pnl-pct-${currentWarehouseId}`);
 
   if (priceEl) {
-    priceEl.textContent = `${fmt(currentPrice, 2)} ¥`;
+    priceEl.textContent = `${fmt(currentPrice, 2)} ${currency}/g`;
+  }
+
+  if (heroPriceEl) {
+    heroPriceEl.textContent = `当前价格：${fmt(currentPrice, 2)} ${currency}/g`;
+  }
+
+  if (heroPnlPctEl) {
+    heroPnlPctEl.textContent = `收益率：${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%`;
   }
 
   if (pnlEl) {
     pnlEl.innerHTML = `${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ¥`;
-    const parentCell = pnlEl.closest('.info-cell');
-    if (parentCell) {
-      parentCell.classList.remove('positive', 'negative');
-      parentCell.classList.add(pnl >= 0 ? 'positive' : 'negative');
+    const statusItem = pnlEl.closest('.status-item');
+    if (statusItem) {
+      statusItem.classList.remove('positive', 'negative');
+      statusItem.classList.add(pnl >= 0 ? 'positive' : 'negative');
     }
   }
 
@@ -899,62 +903,147 @@ function updateWarehouseRealTimeData() {
   // 更新输入框中的参考价格提示
   const buyPriceInput = document.getElementById(`buy-price-${currentWarehouseId}`);
   const priceHint = document.querySelector('.price-hint');
-  if (buyPriceInput && !buyPriceInput.value) {
-    buyPriceInput.placeholder = `当前: ${fmt(currentPrice, 2)}`;
+  if (buyPriceInput) {
+    const nextAutoPrice = fmt(currentPrice, 2);
+    const previousAutoPrice = buyPriceInput.dataset.autoPrice || '';
+    const shouldRefreshAutoValue =
+      !buyPriceInput.value ||
+      buyPriceInput.value === previousAutoPrice ||
+      (!previousAutoPrice && buyPriceInput.value === '0' && currentPrice > 0);
+    buyPriceInput.placeholder = `当前: ${nextAutoPrice}`;
+    if (shouldRefreshAutoValue) {
+      buyPriceInput.value = nextAutoPrice;
+    }
+    buyPriceInput.dataset.autoPrice = nextAutoPrice;
   }
   if (priceHint) {
     priceHint.textContent = `当前参考价格: ${fmt(currentPrice, 2)} ¥`;
   }
 }
 
-// ============================================
-// 价格更新（从 manager.js 调用）
-// ============================================
-function updatePrices(prices) {
-  PRICES = prices;
-  // 如果当前有选中的仓库，更新显示
-  if (currentWarehouseId) {
-    // 只更新价格和盈亏显示，不重新渲染整个表单
-    updatePriceDisplay(currentWarehouseId);
-  }
-}
-
-function updatePriceDisplay(id) {
+function updateWarehouseListRealTimeData() {
   const warehouses = loadWarehouses();
-  const warehouse = warehouses.find(w => w.id === id);
-  if (!warehouse) return;
+  if (!warehouses.length) return;
 
-  const priceObj = PRICES.find(p => p.code === warehouse.refPrice);
-  const currentPrice = priceObj?.value || 0;
-  const currency = getCurrency(warehouse.refPrice);
+  warehouses.forEach((warehouse) => {
+    const itemEl = document.querySelector(`.warehouse-item[data-id="${warehouse.id}"]`);
+    if (!itemEl) return;
 
-  const totalCost = warehouse.totalCost || 0;
-  const currentValue = warehouse.totalGrams * currentPrice;
-  const pnl = currentValue - totalCost;
-  const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+    const priceObj = PRICES.find((p) => p.code === warehouse.refPrice);
+    const currentPrice = priceObj?.value || 0;
+    const currentValue = (warehouse.totalGrams || 0) * currentPrice;
+    const pnl = currentValue - (warehouse.totalCost || 0);
 
-  // 只更新价格和盈亏相关的显示元素
-  const infoItems = document.querySelectorAll('.info-item');
-  infoItems.forEach(item => {
-    const label = item.querySelector('.label')?.textContent;
-    const valueSpan = item.querySelector('.value');
-    if (!valueSpan) return;
-
-    if (label === '当前参考价：') {
-      valueSpan.textContent = `${fmt(currentPrice, 2)} ${currency}/g`;
-    } else if (label === '当前市值：') {
-      valueSpan.textContent = `${fmt(currentValue, 2)} ￥`;
-    } else if (label === '盈亏：') {
-      valueSpan.textContent = `${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ￥`;
-      item.className = `info-item ${pnl >= 0 ? 'profit' : 'loss'}`;
+    const metricsEl = itemEl.querySelector('.warehouse-item-metrics');
+    if (metricsEl) {
+      metricsEl.innerHTML = `
+        <span>${fmt(warehouse.totalGrams, 2)}g</span>
+        <span class="${pnl >= 0 ? 'metric-profit' : 'metric-loss'}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥</span>
+      `;
     }
   });
 }
 
 // ============================================
-// 导出模块
+// 价格更新（从 manager.js 调用）
 // ============================================
-window.warehouseModule = {
+function updatePrices(prices) {
+  const hadPrices = PRICES.length > 0;
+  PRICES = prices;
+
+  updateWarehouseListRealTimeData();
+
+  // 首次拿到价格后，左侧列表需要整体验证一次，避免首屏停留在 0 价格计算结果
+  if (!hadPrices && PRICES.length > 0) {
+    renderWarehouseList();
+    return;
+  }
+
+  // 如果当前有选中的仓库，更新显示
+  if (currentWarehouseId) {
+    // 只更新价格和盈亏显示，不重新渲染整个表单
+    updateWarehouseRealTimeData();
+  }
+}
+
+function refreshWarehouseView(prices = null) {
+  if (Array.isArray(prices)) {
+    PRICES = prices;
+  }
+  renderWarehouseList();
+  updateWarehouseListRealTimeData();
+  updateWarehouseRealTimeData();
+  _notifySummary?.();
+}
+
+function updatePriceDisplay(id) {
+  if (id) currentWarehouseId = id;
+  updateWarehouseRealTimeData();
+}
+
+function bindWarehouseInteractions() {
+  const list = document.getElementById('warehouse-list');
+  if (list && list.dataset.boundWarehouseList !== '1') {
+    list.dataset.boundWarehouseList = '1';
+    list.addEventListener('click', (event) => {
+      const showNew = event.target.closest('[data-action="show-new-warehouse"]');
+      if (showNew) {
+        showNewWarehouseForm();
+        return;
+      }
+      const item = event.target.closest('.warehouse-item[data-action="select-warehouse"]');
+      if (item?.dataset.id) selectWarehouse(item.dataset.id);
+    });
+  }
+
+  const detail = document.getElementById('warehouse-detail');
+  if (detail && detail.dataset.boundWarehouseDetail !== '1') {
+    detail.dataset.boundWarehouseDetail = '1';
+    detail.addEventListener('click', (event) => {
+      const actionEl = event.target.closest('[data-action]');
+      if (!actionEl) return;
+      const id = actionEl.dataset.warehouseId;
+      switch (actionEl.dataset.action) {
+        case 'delete-warehouse':
+          deleteWarehouse(id);
+          break;
+        case 'rename-warehouse':
+          renameWarehouse(id);
+          break;
+        case 'buy-warehouse':
+          buy(id);
+          break;
+        case 'sell-warehouse':
+          sell(id);
+          break;
+        case 'adjust-position':
+          adjustPosition(id);
+          break;
+        case 'create-warehouse':
+          createWarehouse();
+          break;
+        case 'cancel-new-warehouse':
+          cancelNewWarehouse();
+          break;
+        default:
+          break;
+      }
+    });
+
+    detail.addEventListener('change', (event) => {
+      const target = event.target.closest('[data-action="change-refprice"]');
+      if (target?.dataset.warehouseId) {
+        changeRefPrice(target.dataset.warehouseId);
+      }
+    });
+  }
+}
+
+function setWarehouseCallbacks(callbacks = {}) {
+  _notifySummary = typeof callbacks.notifySummary === 'function' ? callbacks.notifySummary : null;
+}
+
+const warehouseModule = {
   getWarehouseSummary,
   renderWarehouseList,
   renderWarehouseDetail,
@@ -970,5 +1059,17 @@ window.warehouseModule = {
   adjustCost,
   adjustPosition,
   updateWarehouseRealTimeData,
-  updatePrices
+  updateWarehouseListRealTimeData,
+  updatePrices,
+  refreshWarehouseView,
+  bindWarehouseInteractions,
+  setWarehouseCallbacks,
 };
+
+export {
+  bindWarehouseInteractions,
+  loadWarehouses,
+  warehouseModule,
+};
+
+export default warehouseModule;

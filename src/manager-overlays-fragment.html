@@ -55,24 +55,9 @@
         <div class="eula-footer">
           <span class="eula-hint" id="eula-hint-text">请滚动阅读完整协议后方可同意</span>
           <div class="eula-actions">
-            <button id="eula-reject-btn" class="eula-btn eula-btn-reject">拒绝</button>
-            <button id="eula-accept-btn" class="eula-btn eula-btn-accept eula-btn-locked">同意</button>
+            <button id="eula-reject-btn" class="eula-btn eula-btn-reject gp-btn-danger">拒绝</button>
+            <button id="eula-accept-btn" class="eula-btn eula-btn-accept eula-btn-locked gp-btn-primary">同意</button>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 服务器通知弹窗 -->
-    <div id="server-message-overlay" class="modal-overlay" style="display:none;">
-      <div class="modal-box">
-        <div class="modal-header">
-          <span class="modal-icon">📢</span>
-          <h3 id="server-message-title" class="modal-title"></h3>
-        </div>
-        <div id="server-message-body" class="modal-body"></div>
-        <div class="modal-footer">
-          <a id="server-message-url" href="#" target="_blank" class="btn btn-secondary btn-small" style="display:none;">查看详情</a>
-          <button id="server-message-close" class="btn btn-primary btn-small">我知道了</button>
         </div>
       </div>
     </div>
@@ -86,24 +71,33 @@
         </div>
         <div class="modal-body" id="toast-body"></div>
         <div class="modal-footer">
-          <button id="toast-ok" class="btn btn-primary btn-small">确定</button>
+          <button id="toast-ok" class="btn btn-primary btn-small gp-btn-primary">确定</button>
         </div>
       </div>
     </div>
 
-    <!-- 下载完成确认弹窗 -->
+    <!-- 更新确认弹窗 -->
     <div id="post-download-overlay" class="modal-overlay" style="display:none;">
-      <div class="modal-box" style="max-width:360px;">
-        <div class="modal-header">
-          <span class="modal-icon">✅</span>
-          <h3 class="modal-title">下载完成</h3>
+      <div class="modal-box update-confirm-modal">
+        <div class="modal-header update-confirm-header">
+          <div>
+            <h3 id="post-download-title" class="modal-title">发现新版本</h3>
+          </div>
         </div>
-        <div class="modal-body">
-          <p style="font-size:13px;line-height:1.6;color:var(--text-secondary);">安装包已下载完成，是否立即安装更新？安装过程中应用将关闭并重启。</p>
+        <div class="modal-body update-confirm-body">
+          <div class="update-confirm-meta-list">
+            <div><span>当前版本：</span><strong id="post-download-current-version">—</strong></div>
+            <div><span>新版本：</span><strong id="post-download-new-version">—</strong></div>
+            <div><span>发布日期：</span><strong id="post-download-meta">—</strong></div>
+          </div>
+          <section class="update-confirm-notes">
+            <div class="update-confirm-kicker">更新说明</div>
+            <div id="post-download-body" class="update-confirm-notes-body">暂无更新说明。</div>
+          </section>
         </div>
-        <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
-          <button id="post-download-later" class="btn btn-secondary btn-small">稍后安装</button>
-          <button id="post-download-now" class="btn btn-primary btn-small">立即安装</button>
+        <div class="modal-actions update-confirm-actions">
+          <button id="post-download-later" class="btn btn-secondary btn-small gp-btn-secondary">取消</button>
+          <button id="post-download-now" class="btn btn-primary btn-small gp-btn-primary">立即更新</button>
         </div>
       </div>
     </div>
@@ -115,8 +109,8 @@
             <h3 class="modal-title">我的工单</h3>
           </div>
           <div class="ticket-history-header-actions">
-            <button id="ticket-refresh-btn" class="btn btn-secondary btn-small" type="button">刷新</button>
-            <button id="ticket-history-close" class="ticket-modal-close" type="button" aria-label="关闭">×</button>
+            <button id="ticket-refresh-btn" class="btn btn-secondary btn-small gp-btn-secondary" type="button">刷新</button>
+            <button id="ticket-history-close" class="ticket-modal-close gp-icon-btn" type="button" aria-label="关闭">×</button>
           </div>
         </div>
         <div class="ticket-history-modal-body">
