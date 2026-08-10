@@ -1,4 +1,7 @@
-(function () {
+import * as echarts from 'echarts';
+import klineCache from './kline_cache.js';
+
+const chartModule = (() => {
   const RANGE_LABELS = { 0: '今日', 7: '近7日', 30: '近1月', 365: '近1年', 1095: '近3年', 1825: '近5年' };
 
   let _range = 0;
@@ -12,6 +15,8 @@
   let _resizeObserver = null;
   let _echartsPromise = null;
   let _activationSeq = 0;
+  let _httpFetch = null;
+  let _log = async () => {};
   const _cleanupFns = [];
 
   function registerCleanup(fn) {
@@ -35,15 +40,15 @@
   }
 
   function _src() {
-    return _currency === 'usd' ? (window.KLINE_USD || []) : (window.KLINE_CNY || []);
+    return klineCache.getBucketData(_currency, 'full');
   }
 
   function _todaySrc() {
-    return _currency === 'usd' ? (window.TODAY_BARS_USD || []) : (window.TODAY_BARS_CNY || []);
+    return klineCache.getBucketData(_currency, 'today');
   }
 
   function _recentSrc() {
-    return _currency === 'usd' ? (window.RECENT_BARS_USD || []) : (window.RECENT_BARS_CNY || []);
+    return klineCache.getBucketData(_currency, 'recent');
   }
 
   function _dark() {
@@ -170,6 +175,25 @@
     return src.filter((r) => new Date(r[0]).getTime() >= cut);
   }
 
+  function _recentRange(days) {
+    const src = _recentSrc().filter(Boolean);
+    if (!src.length) return [];
+    const cut = Date.now() - days * 86400000;
+    return src.filter((r) => new Date(r[0]).getTime() >= cut);
+  }
+
+  function _monthRange() {
+    const daily = _dailyRange(30);
+    const recent = _recentRange(30);
+    if (!recent.length) return daily;
+
+    const recentDays = new Set(recent.map((row) => String(row[0]).slice(0, 10)));
+    return [
+      ...daily.filter((row) => !recentDays.has(String(row[0]).slice(0, 10))),
+      ...recent,
+    ].sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
+  }
+
   function _tradingDayStart(now = new Date()) {
     const start = new Date(now);
     if (start.getHours() < 6) start.setDate(start.getDate() - 1);
@@ -197,10 +221,13 @@
   function _todayStatus() {
     const start = _tradingDayStart();
     const startKey = `${_fmtDateKey(start)} 06:00`;
-    const bars = _todaySrc().filter((r) => r && r[0] >= startKey);
+    const source = _todaySrc().filter(Boolean);
+    const bars = source.filter((r) => r && r[0] >= startKey);
+    const lastSourceBar = source[source.length - 1] || null;
     return {
-      isTradingDay: bars.length > 1,
       label: _fmtDateKey(start),
+      sourceCount: source.length,
+      lastSourceTime: lastSourceBar?.[0] || '',
       bars: _normalizeTodayBars(bars),
     };
   }
@@ -213,7 +240,7 @@
       const recent = _recentSrc().filter(Boolean);
       return recent.length ? recent : _dailyRange(days);
     }
-    if (days === 30) return _dailyRange(days);
+    if (days === 30) return _monthRange();
     if (days === 365) return _aggDays(_dailyRange(days), 2);
     if (days === 1095) return _aggDays(_dailyRange(days), 10);
     return _aggDays(_dailyRange(days), 21);
@@ -334,7 +361,7 @@
         silent: true,
         shape: { r: 18 },
         style: {
-          fill: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          fill: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: c.plotBgTop },
             { offset: 1, color: c.plotBgBottom },
           ]),
@@ -422,7 +449,7 @@
             shadowOffsetY: 4,
           },
           areaStyle: {
-            color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
               { offset: 0, color: c.areaTop },
               { offset: 0.7, color: c.areaBottom },
               { offset: 1, color: 'rgba(0,0,0,0)' },
@@ -493,18 +520,17 @@
 
   function _ensureChart() {
     if (!_chartEl) _chartEl = document.getElementById('gold-chart');
-    if (!_chartEl || !window.echarts) return null;
+    if (!_chartEl) return null;
     if (!_chart) {
       _chartEl.innerHTML = '';
-      _chart = window.echarts.init(_chartEl, null, { renderer: 'canvas' });
+      _chart = echarts.init(_chartEl, null, { renderer: 'canvas' });
     }
     return _chart;
   }
 
   function _loadECharts() {
-    if (window.echarts) return Promise.resolve(window.echarts);
     if (_echartsPromise) return _echartsPromise;
-    _echartsPromise = Promise.reject(new Error('ECharts asset missing'));
+    _echartsPromise = Promise.resolve(echarts);
     return _echartsPromise;
   }
 
@@ -529,20 +555,20 @@
     if (type !== undefined) _type = type;
     await _waitForChartLayout();
     const todayStatus = _range === 0 ? _todayStatus() : null;
-    if (todayStatus && !todayStatus.isTradingDay) {
-      _rawData = [];
-      _updateStats([]);
-      _showEmpty(`当前交易日窗口内未收到有效行情数据`, {
-        title: '今天不是交易日',
-        badge: '休盘提示',
-        detail: `今日市场暂无可展示的连续行情，请稍后再来查看。`,
-      });
-      return;
-    }
     _rawData = _filter(_range);
     _updateStats(_rawData);
     if (!_rawData.length) {
-      _showEmpty('当前时段暂无行情数据');
+      if (todayStatus) {
+        _showEmpty('当前交易日窗口内暂未收到有效行情数据', {
+          title: '行情数据同步中',
+          badge: '暂无今日数据',
+          detail: todayStatus.sourceCount
+            ? `已读取今日数据 ${todayStatus.sourceCount} 条，最新时间 ${todayStatus.lastSourceTime || '未知'}，但没有匹配到 ${todayStatus.label} 06:00 之后的有效 K 线。`
+            : `尚未读取到 ${todayStatus.label} 的今日 K 线数据，请稍后刷新。`,
+        });
+      } else {
+        _showEmpty('当前时段暂无行情数据');
+      }
       return;
     }
     const chart = _ensureChart();
@@ -615,7 +641,7 @@
       const nextRange = options.range ?? _range;
       if (options.range !== undefined) _range = options.range;
       await _loadECharts();
-      await window.klineCache?.refreshOnView?.(_currency, {
+      await klineCache.refreshOnView(_currency, {
         forceRefresh: !!(options.forceRefresh || options.force),
         range: nextRange,
       });
@@ -635,7 +661,7 @@
     if (seq !== _activationSeq) return;
     if (!_cacheInitialized) {
       _cacheInitialized = true;
-      await window.klineCache?.init?.();
+      await klineCache.init({ httpFetch: _httpFetch });
     }
     if (seq !== _activationSeq) return;
     if (!_initialized) {
@@ -653,7 +679,7 @@
       _chart.dispose();
       _chart = null;
     }
-    window.klineCache?.disposeView?.();
+    klineCache.disposeView();
   }
 
   function onViewDeactivated() {
@@ -663,6 +689,17 @@
 
   function updateLivePrice() {}
 
-  window.chartModule = { onViewActivated, onViewDeactivated, onThemeChange, updateLivePrice, refreshData, disposeData };
+  function configure(options = {}) {
+    _httpFetch = options.httpFetch || null;
+    if (typeof options.logger === 'function') {
+      _log = options.logger;
+      klineCache.setLogger(options.logger);
+    }
+    klineCache.setHttpFetch(_httpFetch);
+  }
+
   window.addEventListener('beforeunload', cleanup, { once: true });
+  return { configure, onViewActivated, onViewDeactivated, onThemeChange, updateLivePrice, refreshData, disposeData };
 })();
+
+export { chartModule };

@@ -1,0 +1,34 @@
+services:
+  ticket-db:
+    image: postgres:16-alpine
+    container_name: ticket-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ticket_center
+      POSTGRES_USER: ticket_center
+      POSTGRES_PASSWORD: Ljj20010315_
+    volumes:
+      - /data/dockerService/goldprice_servers/ticket-center/postgres:/var/lib/postgresql/data
+
+  ticket-center:
+    build: .
+    container_name: ticket-center
+    restart: unless-stopped
+    depends_on:
+      - ticket-db
+    ports:
+      - "18083:8082"
+    volumes:
+      - /data/dockerService/goldprice_servers/ticket-center/files:/app/data/files
+    environment:
+      PORT: 8082
+      DATABASE_URL: postgres://ticket_center:Ljj20010315_@ticket-db:5432/ticket_center?sslmode=disable
+      DATA_DIR: /app/data/files
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: Ljj20010315_
+      ADMIN_NAME: Lucas
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "1"

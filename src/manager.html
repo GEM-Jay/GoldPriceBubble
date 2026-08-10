@@ -6,17 +6,6 @@
     <title>GoldPrice</title>
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      (function () {
-        var DESIGN_W = 1200, DESIGN_H = 800;
-        var aw = screen.availWidth, ah = screen.availHeight;
-        var zoom = Math.min(aw / DESIGN_W, ah / DESIGN_H, 1);
-        window.__appZoom = zoom;
-        if (zoom < 0.995) {
-          document.documentElement.style.zoom = zoom.toFixed(4);
-        }
-      })();
-    </script>
   </head>
   <body data-theme="light" data-theme-color="blue">
     <div id="app"></div>

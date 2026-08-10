@@ -1,0 +1,10 @@
+# compiled binaries
+*.exe
+server
+
+# runtime data (persisted by docker volumes)
+data/stats.json
+data/downloads/
+
+# keep the downloads directory itself
+!data/downloads/.gitkeep

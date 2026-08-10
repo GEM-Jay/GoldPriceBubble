@@ -1,0 +1,7 @@
+.gocache/
+ticket-center
+ticket-center.exe
+data/
+postgres/
+files/
+*.log

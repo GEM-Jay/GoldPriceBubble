@@ -1,0 +1,47 @@
+[
+  {
+    "u": "https://hq.sinajs.cn/?rn={ts}&list=hf_GC,hf_XAU,gds_AUTD,hf_XAG,hf_CL",
+    "h": {"Referer": "https://finance.sina.com.cn/nmetal/"},
+    "e": "gbk",
+    "i": [
+      {"r": "hq_str_hf_GC=\"([^,]+)", "n": "纽约金", "c": "$", "k": "comex"},
+      {"r": "hq_str_hf_XAU=\"([^,]+)", "n": "伦敦金", "c": "$", "k": "lbma"},
+      {"r": "hq_str_gds_AUTD=\"([^,]+)", "n": "黄金延期", "c": "¥", "k": "autd"},
+      {"r": "hq_str_hf_XAG=\"([^,]+)", "n": "伦敦银", "c": "$", "k": "xag"},
+      {"r": "hq_str_hf_CL=\"([^,]+)", "n": "纽约原油", "c": "$", "k": "oil"}
+    ]
+  },
+  {
+    "u": "https://ms.jr.jd.com/gw2/generic/jdtwt/h5/m/getSimpleQuoteUseUniqueCodes?reqData=%7B%22ticket%22%3A%22gold-price-h5%22%2C%22uniqueCodes%22%3A%5B%22WG-XAUUSD%22%2C%22SGE-Au%28T%2BD%29%22%2C%22FX-USDCNH%22%5D%7D",
+    "i": [
+      {"r": "WG-XAUUSD[\\s\\S]*?lastPrice[\"\\s:]+(\\d+\\.?\\d*)", "n": "伦敦金_JD", "c": "$", "k": "lbma_jd"},
+      {"r": "SGE-Au\\(T\\+D\\)[\\s\\S]*?lastPrice[\"\\s:]+(\\d+\\.?\\d*)", "n": "上海金_JD", "c": "¥", "k": "sge"},
+      {"r": "FX-USDCNH[\\s\\S]*?lastPrice[\"\\s:]+(\\d+\\.?\\d*)", "n": "离岸人民币", "c": "¥", "k": "cnh"}
+    ]
+  },
+  {
+    "u": "https://ms.jr.jd.com/gw2/generic/CreatorSer/newh5/m/getFirstRelatedProductInfo?reqData=%7B%22circleId%22%3A%2213245%22%2C%22invokeSource%22%3A%225%22%2C%22productId%22%3A%2221001001000001%22%7D",
+    "i": [
+      {"r": "minimumPriceValue[\"\\s:]+(\\d+\\.?\\d*)", "n": "民生积存金", "c": "¥", "k": "cmbc"}
+    ]
+  },
+  {
+    "u": "https://api.jdjygold.com/gw2/generic/produTools/h5/m/getGoldPrice?goldCode=CZB-JCJ",
+    "i": [
+      {"r": "lastPrice[\"\\s:]+(\\d+\\.?\\d*)", "n": "浙商积存金", "c": "¥", "k": "czbank"}
+    ]
+  },
+  {
+    "u": "https://mybank.icbc.com.cn/servlet/AsynGetDataServlet",
+    "m": "POST",
+    "h": {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "Referer": "https://mybank.icbc.com.cn/icbc/newperbank/gold/goldaccrual_marketpriceinfo_unlogin.jsp",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    "b": "tranCode=A00622",
+    "i": [
+      {"j": "rf.0.SellPrice", "n": "工商积存金", "c": "¥", "k": "icbc"}
+    ]
+  }
+]

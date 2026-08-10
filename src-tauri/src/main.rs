@@ -17,12 +17,25 @@ use std::os::windows::process::CommandExt;
 const CLIENT_LOG_MAX_BYTES: usize = 10 * 1024 * 1024;
 const CLIENT_LOG_EXPORT_BYTES: usize = 1024 * 1024;
 static RUNTIME_METADATA: OnceLock<serde_json::Value> = OnceLock::new();
+static SESSION_STATE_PATH: OnceLock<PathBuf> = OnceLock::new();
+const WATCHDOG_GRACE_SECS: i64 = 45;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ClientIdentity {
     install_id: String,
     legacy_client_id: Option<String>,
     created_at: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct SessionStateRecord {
+    session_id: String,
+    status: String,
+    started_at: String,
+    last_heartbeat_at: String,
+    exit_at: Option<String>,
+    exit_reason: Option<String>,
+    app_version: String,
 }
 
 // ========== 状态管理 ==========
@@ -37,7 +50,7 @@ struct AppState {
 
 #[tauri::command]
 async fn quit_app(app: AppHandle) {
-    app.exit(0);
+    request_app_exit(&app, "quit_app_command");
 }
 
 // 用 SetWindowPos 以物理像素重新应用窗口尺寸，修复高 DPI 白边
@@ -59,6 +72,19 @@ fn fix_window_dpi(window: &tauri::Window) {
 #[cfg(not(target_os = "windows"))]
 fn fix_window_dpi(_window: &tauri::Window) {}
 
+#[cfg(target_os = "windows")]
+fn schedule_manager_dpi_fix(window: Window) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        fix_window_dpi(&window);
+        tokio::time::sleep(std::time::Duration::from_millis(220)).await;
+        fix_window_dpi(&window);
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn schedule_manager_dpi_fix(_window: Window) {}
+
 #[tauri::command]
 async fn fix_manager_dpi(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_window("manager") {
@@ -68,12 +94,60 @@ async fn fix_manager_dpi(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn fit_manager_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_window("manager") {
+        let target_w = 1200.0;
+        let target_h = 800.0;
+        let min_w = 900.0;
+        let min_h = 600.0;
+
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let monitor = window
+            .current_monitor()
+            .map_err(|e| e.to_string())?
+            .or_else(|| window.primary_monitor().ok().flatten());
+
+        let (width, height) = if let Some(monitor) = monitor {
+            let monitor_w = monitor.size().width as f64 / scale;
+            let monitor_h = monitor.size().height as f64 / scale;
+            let width_ratio = monitor_w / target_w;
+            let height_ratio = monitor_h / target_h;
+            let ratio = width_ratio.min(height_ratio).min(1.0);
+
+            let fitted_w = (target_w * ratio).floor().max(min_w);
+            let fitted_h = (target_h * ratio).floor().max(min_h);
+            (
+                fitted_w.min(monitor_w).max(min_w),
+                fitted_h.min(monitor_h).max(min_h),
+            )
+        } else {
+            (target_w, target_h)
+        };
+
+        window
+            .set_size(LogicalSize::new(width, height))
+            .map_err(|e| e.to_string())?;
+        fix_window_dpi(&window);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_manager(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_window("manager") {
         window.unminimize().map_err(|e| e.to_string())?;
+        fit_manager_window(app.clone()).await?;
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         fix_window_dpi(&window);
+        let app_after_show = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            let _ = fit_manager_window(app_after_show.clone()).await;
+            if let Some(win) = app_after_show.get_window("manager") {
+                fix_window_dpi(&win);
+            }
+        });
         window.set_always_on_top(true).map_err(|e| e.to_string())?;
         window.set_always_on_top(false).map_err(|e| e.to_string())?;
     }
@@ -295,7 +369,7 @@ async fn clear_all_data_and_quit(app: AppHandle) -> Result<(), String> {
     }
     
     // 退出应用
-    app.exit(0);
+    request_app_exit(&app, "clear_all_data_and_quit");
     Ok(())
 }
 
@@ -387,6 +461,229 @@ fn logs_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn log_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(logs_dir(app)?.join("app.log"))
+}
+
+fn session_state_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data_dir(app)?.join("session-state.json"))
+}
+
+fn read_session_state(path: &PathBuf) -> Option<SessionStateRecord> {
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn write_session_state(path: &PathBuf, record: &SessionStateRecord) -> Result<(), String> {
+    let content = serde_json::to_vec_pretty(record).map_err(|e| e.to_string())?;
+    fs::write(path, content).map_err(|e| e.to_string())
+}
+
+fn update_session_state(
+    app: &AppHandle,
+    status: &str,
+    exit_reason: Option<&str>,
+) -> Result<(), String> {
+    let path = SESSION_STATE_PATH
+        .get()
+        .cloned()
+        .unwrap_or(session_state_path(app)?);
+    let now = chrono_like_now();
+    let mut record = read_session_state(&path).unwrap_or(SessionStateRecord {
+        session_id: uuid::Uuid::new_v4().to_string(),
+        status: "running".to_string(),
+        started_at: now.clone(),
+        last_heartbeat_at: now.clone(),
+        exit_at: None,
+        exit_reason: None,
+        app_version: app.package_info().version.to_string(),
+    });
+    record.status = status.to_string();
+    record.last_heartbeat_at = now.clone();
+    record.app_version = app.package_info().version.to_string();
+    if status == "running" {
+        record.exit_at = None;
+        record.exit_reason = None;
+    } else {
+        record.exit_at = Some(now);
+        record.exit_reason = exit_reason.map(|s| s.to_string());
+    }
+    write_session_state(&path, &record)
+}
+
+fn install_panic_hook() {
+    static PANIC_HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
+    if PANIC_HOOK_INSTALLED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        if let Some(path) = SESSION_STATE_PATH.get() {
+            let now = chrono_like_now();
+            let mut record = read_session_state(path).unwrap_or(SessionStateRecord {
+                session_id: uuid::Uuid::new_v4().to_string(),
+                status: "panic".to_string(),
+                started_at: now.clone(),
+                last_heartbeat_at: now.clone(),
+                exit_at: Some(now.clone()),
+                exit_reason: None,
+                app_version: String::new(),
+            });
+            let payload = if let Some(msg) = panic_info.payload().downcast_ref::<&str>() {
+                (*msg).to_string()
+            } else if let Some(msg) = panic_info.payload().downcast_ref::<String>() {
+                msg.clone()
+            } else {
+                "unknown panic payload".to_string()
+            };
+            let location = panic_info
+                .location()
+                .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+                .unwrap_or_else(|| "unknown location".to_string());
+            record.status = "panic".to_string();
+            record.last_heartbeat_at = now.clone();
+            record.exit_at = Some(now);
+            record.exit_reason = Some(format!("panic at {}: {}", location, payload));
+            let _ = write_session_state(path, &record);
+        }
+        default_hook(panic_info);
+    }));
+}
+
+fn initialize_session_tracking(app: &AppHandle) -> Result<(), String> {
+    let path = session_state_path(app)?;
+    let _ = SESSION_STATE_PATH.set(path.clone());
+    install_panic_hook();
+
+    if let Some(previous) = read_session_state(&path) {
+        if previous.status == "running" {
+            let _ = append_client_log_entry(
+                app,
+                "error",
+                "lifecycle",
+                "previous_session_unclean_exit",
+                "previous session did not finish cleanly",
+                Some(serde_json::json!({
+                    "previousSessionId": previous.session_id,
+                    "startedAt": previous.started_at,
+                    "lastHeartbeatAt": previous.last_heartbeat_at,
+                    "appVersion": previous.app_version,
+                    "exitReason": previous.exit_reason,
+                })),
+            );
+        }
+    }
+
+    let now = chrono_like_now();
+    let record = SessionStateRecord {
+        session_id: uuid::Uuid::new_v4().to_string(),
+        status: "running".to_string(),
+        started_at: now.clone(),
+        last_heartbeat_at: now,
+        exit_at: None,
+        exit_reason: None,
+        app_version: app.package_info().version.to_string(),
+    };
+    write_session_state(&path, &record)?;
+    append_client_log_entry(
+        app,
+        "info",
+        "lifecycle",
+        "session_started",
+        "session tracking started",
+        Some(serde_json::json!({
+            "sessionId": record.session_id,
+            "appVersion": record.app_version,
+        })),
+    )?;
+
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            let _ = update_session_state(&app_handle, "running", None);
+        }
+    });
+    Ok(())
+}
+
+fn request_app_exit(app: &AppHandle, reason: &str) {
+    let _ = append_client_log_entry(
+        app,
+        "warn",
+        "lifecycle",
+        "app_exit_requested",
+        "app exit requested",
+        Some(serde_json::json!({ "reason": reason })),
+    );
+    let _ = update_session_state(app, "clean_exit", Some(reason));
+    app.exit(0);
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_restart_watchdog(app: &AppHandle) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    let session_path = session_state_path(app)?;
+    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let current_pid = std::process::id();
+
+    let watchdog_script = format!(
+        r#"$ErrorActionPreference = 'SilentlyContinue'
+$pidToWatch = {pid}
+$sessionPath = '{session_path}'
+$exePath = '{exe_path}'
+$graceSeconds = {grace}
+
+while ($true) {{
+  Start-Sleep -Seconds 20
+  $proc = Get-Process -Id $pidToWatch -ErrorAction SilentlyContinue
+  if ($proc) {{
+    continue
+  }}
+  if (-not (Test-Path -LiteralPath $sessionPath)) {{
+    break
+  }}
+  $raw = Get-Content -LiteralPath $sessionPath -Raw -ErrorAction SilentlyContinue
+  if ([string]::IsNullOrWhiteSpace($raw)) {{
+    break
+  }}
+  try {{
+    $state = $raw | ConvertFrom-Json
+  }} catch {{
+    break
+  }}
+  if ($state.status -ne 'running') {{
+    break
+  }}
+  try {{
+    $lastHeartbeat = [DateTimeOffset]::Parse($state.last_heartbeat_at)
+  }} catch {{
+    break
+  }}
+  $elapsed = ([DateTimeOffset]::UtcNow - $lastHeartbeat).TotalSeconds
+  if ($elapsed -lt $graceSeconds) {{
+    continue
+  }}
+  if ($state.exit_reason -and ($state.exit_reason -like '*install_update*')) {{
+    break
+  }}
+  if (Test-Path -LiteralPath $exePath) {{
+    Start-Process -FilePath $exePath -WindowStyle Hidden | Out-Null
+  }}
+  break
+}}"#,
+        pid = current_pid,
+        session_path = session_path.to_string_lossy().replace('\'', "''"),
+        exe_path = current_exe.to_string_lossy().replace('\'', "''"),
+        grace = WATCHDOG_GRACE_SECS,
+    );
+
+    Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &watchdog_script])
+        .creation_flags(0x08000000)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 fn command_output_trimmed(program: &str, args: &[&str]) -> Option<String> {
@@ -916,7 +1213,7 @@ async fn install_update(app: AppHandle, path: String) -> Result<(), String> {
         .spawn();
     match result {
         Ok(_) => {
-            app.exit(0);
+            request_app_exit(&app, "install_update");
             Ok(())
         }
         Err(e) => Err(format!("启动安装程序失败: {}", e)),
@@ -999,7 +1296,7 @@ fn apply_frameless_style(window: &Window) {
 
             // 替换窗口过程以拦截 WM_NCACTIVATE/WM_NCPAINT（只安装一次）
             if ORIG_BUBBLE_PROC.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-                let orig = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, bubble_wnd_proc as isize);
+                let orig = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, bubble_wnd_proc as *const () as isize);
                 if orig != 0 {
                     ORIG_BUBBLE_PROC.store(orig, std::sync::atomic::Ordering::SeqCst);
                 }
@@ -1076,7 +1373,7 @@ fn tray_toggle_label(label: &str, enabled: bool) -> String {
 
 fn create_tray_menu() -> SystemTray {
     let manager_item = CustomMenuItem::new("manager".to_string(), "管理界面");
-    let bubble_item = CustomMenuItem::new("bubble_toggle".to_string(), tray_toggle_label("浮窗显示", true));
+    let bubble_item = CustomMenuItem::new("bubble_toggle".to_string(), tray_toggle_label("浮窗显示", false));
     let reset_pos_item = CustomMenuItem::new("reset_position".to_string(), "重置浮窗位置");
     let auto_start_item = CustomMenuItem::new("auto_start".to_string(), tray_toggle_label("开机自启", false));
     let quit_item = CustomMenuItem::new("quit".to_string(), "退出");
@@ -1143,6 +1440,7 @@ fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
             match id.as_str() {
                 "manager" => {
                     if let Some(window) = app.get_window("manager") {
+                        let _ = tauri::async_runtime::block_on(fit_manager_window(app.clone()));
                         let _ = window.unminimize();
                         let _ = window.show();
                         let _ = window.set_focus();
@@ -1218,7 +1516,7 @@ fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
                     }
                 }
                 "quit" => {
-                    app.exit(0);
+                    request_app_exit(app, "tray_quit");
                 }
                 _ => {}
             }
@@ -1258,10 +1556,36 @@ fn main() {
                     apply_frameless_style(&window);
 
                     let win_ev = window.clone();
+                    let app_handle_for_close = app.handle();
                     window.on_window_event(move |event| {
                         match event {
                             tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Moved(_) => {
                                 apply_frameless_style(&win_ev);
+                            }
+                            tauri::WindowEvent::CloseRequested { api, .. } => {
+                                api.prevent_close();
+                                let _ = win_ev.hide();
+                                let state: tauri::State<AppState> = app_handle_for_close.state();
+                                *state.bubble_visible.lock().unwrap() = false;
+                                update_tray_menu(&app_handle_for_close);
+                                let _ = append_client_log_entry(
+                                    &app_handle_for_close,
+                                    "warn",
+                                    "window",
+                                    "bubble_close_intercepted",
+                                    "bubble close request intercepted and hidden instead",
+                                    None,
+                                );
+                            }
+                            tauri::WindowEvent::Destroyed => {
+                                let _ = append_client_log_entry(
+                                    &app_handle_for_close,
+                                    "error",
+                                    "window",
+                                    "bubble_window_destroyed",
+                                    "bubble window was destroyed",
+                                    None,
+                                );
                             }
                             _ => {}
                         }
@@ -1356,11 +1680,31 @@ fn main() {
             // Setup manager window
             if let Some(window) = app.get_window("manager") {
                 // 关闭改为隐藏
+                let app_handle_for_manager = app.handle();
                 let window_clone = window.clone();
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = window_clone.hide();
+                    match event {
+                        tauri::WindowEvent::Resized(_)
+                        | tauri::WindowEvent::Moved(_)
+                        | tauri::WindowEvent::ScaleFactorChanged { .. }
+                        | tauri::WindowEvent::Focused(true) => {
+                            schedule_manager_dpi_fix(window_clone.clone());
+                        }
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            api.prevent_close();
+                            let _ = window_clone.hide();
+                        }
+                        tauri::WindowEvent::Destroyed => {
+                            let _ = append_client_log_entry(
+                                &app_handle_for_manager,
+                                "error",
+                                "window",
+                                "manager_window_destroyed",
+                                "manager window was destroyed",
+                                None,
+                            );
+                        }
+                        _ => {}
                     }
                 });
 
@@ -1411,11 +1755,16 @@ fn main() {
             
             // 更新托盘菜单以反映当前状态
             update_tray_menu(&app.handle());
+            initialize_session_tracking(&app.handle())?;
+            #[cfg(target_os = "windows")]
+            {
+                let _ = spawn_restart_watchdog(&app.handle());
+            }
             
             Ok(())
         })
         .manage(AppState {
-            bubble_visible: Mutex::new(true),
+            bubble_visible: Mutex::new(false),
             auto_start_enabled: Mutex::new(false),
             bubble_topmost_task_started: AtomicBool::new(false),
             active_download_id: Mutex::new(None),
@@ -1425,6 +1774,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             open_manager,
             fix_manager_dpi,
+            fit_manager_window,
             hide_bubble,
             show_bubble,
             resize_bubble,

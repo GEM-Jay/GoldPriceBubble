@@ -2,6 +2,15 @@
 // bubble.js - 气泡窗口渲染（Tauri版）
 // =========================
 
+import dataSource from './datasource.js';
+import {
+  SERVER_URL,
+  appendClientLog,
+  getTauriApis,
+  normalizeServerUrl,
+  waitForTauri,
+} from './runtime.js';
+
 const _cleanupFns = [];
 const _managedIntervals = new Map();
 const _managedTimeouts = new Map();
@@ -15,19 +24,7 @@ let _recentSnapshots = [];
 let _lastVisualSignature = '';
 const _bubbleLogFlags = Object.create(null);
 let _lastResizeAppliedSignature = '';
-
-function normalizeServerUrl(url) {
-  const fallback = String(typeof SERVER_URL !== 'undefined' ? SERVER_URL : '').replace(/\/+$/, '');
-  const raw = String(url || '').trim();
-  if (!raw) return fallback;
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== 'https:') return fallback;
-    return raw.replace(/\/+$/, '');
-  } catch (_) {
-    return fallback;
-  }
-}
+let _bubbleBootstrapStarted = false;
 
 function registerCleanup(fn) {
   if (typeof fn === 'function') _cleanupFns.push(fn);
@@ -63,7 +60,7 @@ function cleanupManagedResources() {
   _managedIntervals.clear();
   _managedTimeouts.forEach((id) => clearTimeout(id));
   _managedTimeouts.clear();
-  try { DataSource?.dispose?.(); } catch (_) {}
+  try { dataSource?.dispose?.(); } catch (_) {}
   while (_cleanupFns.length) {
     const fn = _cleanupFns.pop();
     try { fn(); } catch (_) {}
@@ -88,21 +85,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }, true);
 });
 
-// 等待 Tauri API 加载
-function waitForTauri(callback) {
-  if (window.__TAURI__) {
-    setTimeout(callback, 0);
-  } else {
-    setTimeout(() => waitForTauri(callback), 50);
-  }
-}
-
-let invoke, listen, appWindow, LogicalSize;
-waitForTauri(() => {
-  invoke = window.__TAURI__.tauri.invoke;
-  listen = window.__TAURI__.event.listen;
-  appWindow = window.__TAURI__.window.appWindow;
-  LogicalSize = window.__TAURI__.window.LogicalSize;
+let tauri = null;
+let invoke, listen, emit, appWindow, LogicalSize, PhysicalSize;
+function bootBubbleApp() {
+  if (_bubbleBootstrapStarted) return;
+  _bubbleBootstrapStarted = true;
+  waitForTauri(() => {
+  const tauriApis = getTauriApis();
+  tauri = tauriApis.tauri;
+  invoke = tauriApis.invoke;
+  listen = tauriApis.listen;
+  emit = tauri?.event?.emit || null;
+  appWindow = tauriApis.appWindow;
+  LogicalSize = tauriApis.LogicalSize;
+  PhysicalSize = tauriApis.PhysicalSize;
   
   // 在 Tauri API 加载后初始化应用
   if (document.readyState === 'loading') {
@@ -110,7 +106,8 @@ waitForTauri(() => {
   } else {
     init();
   }
-});
+  });
+}
 
 // ---------- 配置 ----------
 // SERVER_URL 从 config.js 中导入
@@ -130,19 +127,11 @@ const state = {
   bubbleOpacity: 100,
   showPnl: false,
   selectedPnlWarehouses: [],
-  serverUrl: (typeof SERVER_URL !== 'undefined' ? SERVER_URL : ''),
+  serverUrl: SERVER_URL || '',
 };
 
 async function appLog(level, moduleName, event, message, context = null) {
-  try {
-    await invoke('append_client_log', {
-      level,
-      module: moduleName,
-      event,
-      message,
-      context
-    });
-  } catch (_) {}
+  await appendClientLog(invoke, level, moduleName, event, message, context);
 }
 
 function _markBubbleLogFlag(key) {
@@ -189,11 +178,11 @@ function _shouldLogResizeRequested(reason) {
 
 // ========== 工具函数 ==========
 function getCurrency(code) {
-  return DataSource.getCurrency(code);
+  return dataSource.getCurrency(code);
 }
 
 function getDisplayName(code, apiName) {
-  return DataSource.getDisplayName(code, apiName);
+  return dataSource.getDisplayName(code, apiName);
 }
 
 function fmt(v, decimals = 2) {
@@ -222,7 +211,7 @@ function loadConfig() {
     state.bubbleOpacity = parseInt(localStorage.getItem('bubbleOpacity') || '100');
     state.showPnl = localStorage.getItem('showPnl') === 'true';
     state.selectedPnlWarehouses = JSON.parse(localStorage.getItem('pnl_selected_warehouses') || '[]');
-    state.serverUrl = normalizeServerUrl(localStorage.getItem('serverUrl') || (typeof SERVER_URL !== 'undefined' ? SERVER_URL : ''));
+    state.serverUrl = normalizeServerUrl(localStorage.getItem('serverUrl') || SERVER_URL);
     try {
       localStorage.setItem('serverUrl', state.serverUrl);
       localStorage.setItem('bubbleThemeColor', state.bubbleThemeColor);
@@ -263,7 +252,7 @@ function applyPricesSnapshot(snapshot) {
   if (savedCodes !== null) {
     state.selectedCodes = JSON.parse(savedCodes);
   } else {
-    state.selectedCodes = DataSource.getFirstKeys(2);
+    state.selectedCodes = dataSource.getFirstKeys(2);
     try { localStorage.setItem('selectedCodes', JSON.stringify(state.selectedCodes)); } catch (_) {}
   }
   _normalizeBubbleSelectedCodes();
@@ -274,14 +263,21 @@ function applyPricesSnapshot(snapshot) {
 
 function _normalizeBubbleSelectedCodes() {
   const original = Array.isArray(state.selectedCodes) ? state.selectedCodes.slice() : [];
-  const selectable = (typeof DataSource !== 'undefined' && typeof DataSource.getAllItems === 'function')
-    ? DataSource.getAllItems().map(item => item.code).filter(Boolean)
-    : [];
-  const available = new Set(selectable);
+  const available = new Set();
+  const maxRows = Math.max(1, Math.min(8, Number(state.bubbleRows) || 1));
+  if (typeof dataSource?.getAllItems === 'function') {
+    dataSource.getAllItems().forEach((item) => {
+      if (item?.code) available.add(item.code);
+    });
+  }
+  state.prices.forEach((price) => {
+    if (price?.code) available.add(price.code);
+  });
   const normalized = [];
   const seen = new Set();
 
   original.forEach((code) => {
+    if (normalized.length >= maxRows) return;
     if (!code || seen.has(code)) return;
     if (available.size > 0 && !available.has(code)) return;
     seen.add(code);
@@ -289,24 +285,23 @@ function _normalizeBubbleSelectedCodes() {
   });
 
   if (normalized.length === 0 && state.prices.length > 0) {
-    state.prices.slice(0, Math.max(1, state.bubbleRows || 1)).forEach((price) => {
+    state.prices.slice(0, maxRows).forEach((price) => {
       if (!price?.code || seen.has(price.code)) return;
       seen.add(price.code);
       normalized.push(price.code);
     });
   }
 
-  const limited = normalized.slice(0, Math.max(1, state.bubbleRows || 1));
   const changed =
-    limited.length !== original.length ||
-    limited.some((code, index) => code !== original[index]);
+    normalized.length !== original.length ||
+    normalized.some((code, index) => code !== original[index]);
 
   if (!changed) return false;
-  state.selectedCodes = limited;
-  try { localStorage.setItem('selectedCodes', JSON.stringify(limited)); } catch (_) {}
+  state.selectedCodes = normalized;
+  try { localStorage.setItem('selectedCodes', JSON.stringify(normalized)); } catch (_) {}
   appLog('warn', 'bubble', 'selected_codes_normalized', 'bubble selected codes normalized against current prices', _getBubbleDiagnostics({
     originalSelectedCodes: original,
-    normalizedSelectedCodes: limited,
+    normalizedSelectedCodes: normalized,
     selectableCodesCount: available.size,
   }));
   return true;
@@ -489,6 +484,7 @@ let _resizeQueued = false;
 let _bubbleShown = false;
 let _hasRealContent = false;
 let _allowResizeObserverUntil = 0;
+const RESIZE_STABLE_DELTA_PX = 4;
 
 function _measureNaturalSize(bubbleRoot) {
   const html = document.documentElement;
@@ -548,7 +544,12 @@ async function resizeBubble() {
       }));
       return;
     }
-    if (domWidth === _lastResizeW && domHeight === _lastResizeH) return;
+    const widthDelta = Math.abs(domWidth - _lastResizeW);
+    const heightDelta = Math.abs(domHeight - _lastResizeH);
+    const isStableResize = _bubbleShown
+      && widthDelta <= RESIZE_STABLE_DELTA_PX
+      && heightDelta <= RESIZE_STABLE_DELTA_PX;
+    if ((domWidth === _lastResizeW && domHeight === _lastResizeH) || isStableResize) return;
     _lastResizeW = domWidth;
     _lastResizeH = domHeight;
 
@@ -561,8 +562,8 @@ async function resizeBubble() {
       finalW += 10;
     }
 
-    const monitor = await window.__TAURI__.window.currentMonitor()
-      || await window.__TAURI__.window.primaryMonitor();
+    const monitor = await tauri?.window?.currentMonitor?.()
+      || await tauri?.window?.primaryMonitor?.();
     if (_isBubbleUnloading) return;
     if (monitor) {
       const maxH = monitor.size.height * 0.85;
@@ -573,7 +574,6 @@ async function resizeBubble() {
       await invoke('set_bubble_size', { width: finalW, height: finalH });
     } catch (_) {
       if (_isBubbleUnloading) return;
-      const { PhysicalSize } = window.__TAURI__.window;
       await appWindow.setSize(new PhysicalSize(finalW, finalH));
     }
     const resizeSignature = [finalW, finalH, domWidth, domHeight, !!_bubbleShown, !!_hasRealContent].join('|');
@@ -601,16 +601,6 @@ async function resizeBubble() {
       }
     }
 
-    if (_isBubbleUnloading) return;
-    const winSize = await appWindow.innerSize();
-    const rect = document.getElementById('bubble-root').getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    console.log(
-      `[resize] div=${rect.width.toFixed(1)}x${rect.height.toFixed(1)}css  ` +
-      `div_phys=${Math.ceil(rect.width*dpr)}x${Math.ceil(rect.height*dpr)}px  ` +
-      `win_phys=${winSize.width}x${winSize.height}px  ` +
-      `dpr=${dpr}  measured=${finalW}x${finalH}`
-    );
   } finally {
     _resizing = false;
     if (_resizeQueued) {
@@ -656,6 +646,22 @@ function refreshFromSnapshot(snapshot) {
   }
 }
 
+function renderCachedPricesIfAvailable() {
+  const cachedPrices = typeof dataSource.loadPrices === 'function' ? dataSource.loadPrices() : [];
+  if (!Array.isArray(cachedPrices) || cachedPrices.length === 0) return false;
+  state.oldPrices = {};
+  state.prices = cachedPrices;
+  const savedCodes = localStorage.getItem('selectedCodes');
+  if (savedCodes !== null) {
+    try { state.selectedCodes = JSON.parse(savedCodes); } catch (_) {}
+  }
+  _normalizeBubbleSelectedCodes();
+  renderBubble();
+  updateStatusIndicator(false);
+  appLog('warn', 'bubble', 'cached_prices_rendered', 'bubble rendered cached prices while waiting for live snapshot', _getBubbleDiagnostics());
+  return true;
+}
+
 // ========== 初始化 ==========
 async function init() {
   if (_bubbleInitStarted) return;
@@ -666,8 +672,8 @@ async function init() {
   });
   loadConfig();
 
-  // 初始化 DataSource（气泡只需读缓存，不需要 httpFetch）
-  DataSource.init(null, state.serverUrl);
+  // 初始化数据源（气泡只需读缓存，不需要 httpFetch）
+  dataSource.init(null, state.serverUrl);
 
   document.body.setAttribute('data-theme', state.bubbleTheme);
   document.body.setAttribute('data-theme-color', state.bubbleThemeColor || 'blue');
@@ -686,6 +692,7 @@ async function init() {
   });
 
   initResizeObserver();
+  renderCachedPricesIfAvailable();
 
   // 监听管理窗口价格快照（管理窗口是唯一的抓取方）
   const unlistenPrices = await listen('prices-snapshot', (event) => {
@@ -701,6 +708,7 @@ async function init() {
   // 监听配置更新（选项、主题等变化，可能影响行数/字号 → 需要 resize）
   const unlistenConfig = await listen('config-update', () => {
     loadConfig();
+    _normalizeBubbleSelectedCodes();
     const container = document.getElementById('bubble-lines');
     if (container) container.innerHTML = '';
     renderBubble();
@@ -709,19 +717,22 @@ async function init() {
 
   // 监听数据源更新（管理窗口更新了数据源列表）
   const unlistenSources = await listen('sources-updated', () => {
-    DataSource.reloadFromStorage();
+    dataSource.reloadFromStorage();
+    _normalizeBubbleSelectedCodes();
     renderBubble();
   });
   registerCleanup(() => { try { unlistenSources(); } catch (_) {} });
 
   // 监听强制刷新（从右键菜单或其他地方触发）
   const unlistenRefresh = await listen('bubble-refresh-now', () => {
+    loadConfig();
+    _normalizeBubbleSelectedCodes();
     renderBubble();
   });
   registerCleanup(() => { try { unlistenRefresh(); } catch (_) {} });
 
   try {
-    window.__TAURI__?.event?.emit?.('prices-snapshot-request');
+    emit?.('prices-snapshot-request');
   } catch (_) {}
   setManagedTimeout('bubble-first-snapshot-watchdog', () => {
     if (_recentSnapshots.length > 0 || _isBubbleUnloading) return;
@@ -762,3 +773,5 @@ async function init() {
 
   // 置顶兜底由 Rust 侧 SetWindowPos 负责，避免 WebView 侧 setAlwaysOnTop 触发窗口抖动。
 }
+
+export { bootBubbleApp };

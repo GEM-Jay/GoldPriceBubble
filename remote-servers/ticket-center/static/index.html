@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>工单处理中心</title>
+    <style>
+      :root {
+        --bg: #f5f7fa;
+        --surface: #ffffff;
+        --surface-muted: #f8fafc;
+        --line: #dbe3ea;
+        --line-strong: #c8d3dd;
+        --text: #17212b;
+        --muted: #667789;
+        --muted-strong: #415364;
+        --accent: #1b6f78;
+        --accent-strong: #145962;
+        --accent-soft: #e4f4f5;
+        --danger: #ba3b3b;
+        --warn: #a46716;
+        --ok: #25724a;
+        --shadow: 0 18px 46px rgba(30, 45, 60, 0.12);
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        background: var(--bg);
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        min-height: 38px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        padding: 8px 14px;
+        color: #fff;
+        background: var(--accent);
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--accent-strong);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.62;
+      }
+
+      button.secondary {
+        color: var(--text);
+        border-color: var(--line);
+        background: #fff;
+      }
+
+      button.secondary:hover {
+        border-color: var(--line-strong);
+        background: var(--surface-muted);
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        min-height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 11px;
+        color: var(--text);
+        background: #fff;
+        outline: none;
+      }
+
+      textarea {
+        min-height: 112px;
+        resize: vertical;
+        line-height: 1.6;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(27, 111, 120, 0.12);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .shell {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 64px;
+        padding: 12px 22px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(14px);
+      }
+
+      .brand {
+        min-width: 0;
+      }
+
+      .brand-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 750;
+        letter-spacing: 0;
+      }
+
+      .brand-sub {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .login-wrap {
+        width: min(420px, calc(100% - 32px));
+        margin: 11vh auto 0;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .card-head {
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .card-title {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 750;
+      }
+
+      .card-body {
+        padding: 20px;
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--muted-strong);
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .form-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .hint {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .app-layout {
+        width: 100%;
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 18px;
+        display: grid;
+        grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+        gap: 18px;
+        flex: 1;
+      }
+
+      .tickets-pane,
+      .detail-pane {
+        min-width: 0;
+        min-height: calc(100vh - 100px);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      .pane-head {
+        padding: 16px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .pane-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .pane-title {
+        margin: 0;
+        font-size: 17px;
+      }
+
+      .count-pill {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 4px 9px;
+        color: var(--accent);
+        background: var(--accent-soft);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .filter-grid {
+        display: grid;
+        grid-template-columns: 126px minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .search-row {
+        display: flex;
+        gap: 10px;
+      }
+
+      .ticket-list {
+        height: calc(100vh - 210px);
+        min-height: 420px;
+        overflow: auto;
+        padding: 10px;
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        background: var(--surface-muted);
+      }
+
+      .ticket-item {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 12px;
+        text-align: left;
+        color: var(--text);
+        background: #fff;
+        cursor: pointer;
+      }
+
+      .ticket-item:hover {
+        border-color: var(--line-strong);
+        box-shadow: 0 8px 22px rgba(30, 45, 60, 0.08);
+      }
+
+      .ticket-item.active {
+        border-color: var(--accent);
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+
+      .ticket-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .ticket-no {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .ticket-title {
+        margin-top: 8px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 750;
+      }
+
+      .ticket-meta,
+      .ticket-reply {
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .ticket-reply {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 12px;
+        font-weight: 750;
+        white-space: nowrap;
+      }
+
+      .status.pending {
+        color: var(--warn);
+        background: #fff4df;
+      }
+
+      .status.processing {
+        color: #1e5d93;
+        background: #e8f3ff;
+      }
+
+      .status.resolved {
+        color: var(--ok);
+        background: #e8f6ee;
+      }
+
+      .status.closed {
+        color: #5d6671;
+        background: #edf0f3;
+      }
+
+      .detail-pane {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .mobile-back {
+        display: none;
+      }
+
+      .detail-empty {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        padding: 36px;
+        color: var(--muted);
+        text-align: center;
+        background: linear-gradient(180deg, #fff 0%, var(--surface-muted) 100%);
+      }
+
+      .detail-wrap {
+        flex: 1;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 0;
+      }
+
+      .detail-summary {
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .detail-top {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 170px;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .detail-no {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .detail-title {
+        margin: 6px 0 10px;
+        font-size: 24px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      .detail-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .detail-content {
+        margin-top: 16px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-muted);
+        white-space: pre-wrap;
+        line-height: 1.75;
+      }
+
+      .files {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .file-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        max-width: 100%;
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 7px 10px;
+        color: var(--text);
+        background: #fff;
+        text-decoration: none;
+      }
+
+      .file-chip:hover {
+        border-color: var(--accent);
+      }
+
+      .detail-scroll {
+        min-height: 0;
+        overflow: auto;
+        padding: 18px 20px 22px;
+        background: var(--surface-muted);
+      }
+
+      .work-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: 16px;
+      }
+
+      .work-box {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 15px;
+        background: #fff;
+      }
+
+      .work-box-title {
+        margin: 0 0 12px;
+        font-size: 15px;
+        font-weight: 750;
+      }
+
+      .message-stream {
+        display: grid;
+        gap: 10px;
+      }
+
+      .message {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 12px;
+        background: #fff;
+      }
+
+      .message.admin {
+        border-color: #b8d7db;
+        background: #f3fbfc;
+      }
+
+      .message-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      .message-name {
+        font-weight: 750;
+      }
+
+      .message-body {
+        white-space: pre-wrap;
+        line-height: 1.7;
+      }
+
+      .empty {
+        padding: 28px 12px;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .toast {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 20;
+        max-width: min(420px, calc(100vw - 36px));
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 12px 14px;
+        color: var(--text);
+        background: #fff;
+        box-shadow: var(--shadow);
+      }
+
+      @media (max-width: 1180px) {
+        .app-layout {
+          grid-template-columns: 340px minmax(0, 1fr);
+          gap: 14px;
+          padding: 14px;
+        }
+
+        .work-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 820px) {
+        .topbar {
+          padding: 11px 14px;
+        }
+
+        .brand-sub {
+          display: none;
+        }
+
+        .app-layout {
+          display: block;
+          padding: 10px;
+        }
+
+        .tickets-pane,
+        .detail-pane {
+          min-height: calc(100vh - 84px);
+        }
+
+        body.detail-open .tickets-pane {
+          display: none;
+        }
+
+        body:not(.detail-open) .detail-pane {
+          display: none;
+        }
+
+        .ticket-list {
+          height: calc(100vh - 190px);
+          min-height: 0;
+        }
+
+        .mobile-back {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .detail-top {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+
+        .detail-title {
+          font-size: 21px;
+        }
+
+        .detail-scroll,
+        .detail-summary {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .filter-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .search-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .card-body,
+        .card-head {
+          padding: 16px;
+        }
+
+        .login-wrap {
+          margin-top: 7vh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <h1 class="brand-title">工单处理中心</h1>
+          <p class="brand-sub">查看客户端反馈、处理状态并回复用户</p>
+        </div>
+        <button id="logout-btn" class="secondary hidden">退出登录</button>
+      </header>
+
+      <main id="login-panel" class="login-wrap">
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">管理员登录</h2>
+          </div>
+          <div class="card-body">
+            <div class="field">
+              <label for="login-user">账号</label>
+              <input id="login-user" autocomplete="username" />
+            </div>
+            <div class="field">
+              <label for="login-pass">密码</label>
+              <input id="login-pass" type="password" autocomplete="current-password" />
+            </div>
+            <div class="form-actions">
+              <button id="login-btn">登录</button>
+            </div>
+            <div id="login-msg" class="hint"></div>
+          </div>
+        </section>
+      </main>
+
+      <main id="app-panel" class="app-layout hidden">
+        <section class="tickets-pane">
+          <div class="pane-head">
+            <div class="pane-title-row">
+              <h2 class="pane-title">工单队列</h2>
+              <span id="ticket-count" class="count-pill">0</span>
+            </div>
+            <div class="filter-grid">
+              <select id="status-filter" aria-label="工单状态">
+                <option value="">全部状态</option>
+                <option value="pending">未处理</option>
+                <option value="processing">处理中</option>
+                <option value="resolved">已处理</option>
+                <option value="closed">已关闭</option>
+              </select>
+              <div class="search-row">
+                <input id="search-input" placeholder="搜索标题、联系方式、编号" />
+                <button id="search-btn" class="secondary">筛选</button>
+              </div>
+            </div>
+          </div>
+          <div id="ticket-list" class="ticket-list"></div>
+        </section>
+
+        <section class="detail-pane">
+          <div class="pane-head">
+            <div class="pane-title-row" style="margin-bottom: 0">
+              <h2 class="pane-title">工单详情</h2>
+              <button id="back-list-btn" class="secondary mobile-back">返回列表</button>
+            </div>
+          </div>
+
+          <div id="detail-empty" class="detail-empty">
+            <div>
+              <strong>请选择一个工单</strong>
+              <div class="hint">在左侧队列中打开工单后，可以修改状态、查看附件并回复用户。</div>
+            </div>
+          </div>
+
+          <div id="detail-wrap" class="detail-wrap hidden">
+            <div class="detail-summary">
+              <div class="detail-top">
+                <div>
+                  <div id="detail-ticket-no" class="detail-no"></div>
+                  <h3 id="detail-title" class="detail-title"></h3>
+                  <div id="detail-meta" class="detail-meta"></div>
+                </div>
+                <div class="field" style="margin-bottom: 0">
+                  <label for="detail-status">状态</label>
+                  <select id="detail-status">
+                    <option value="pending">未处理</option>
+                    <option value="processing">处理中</option>
+                    <option value="resolved">已处理</option>
+                    <option value="closed">已关闭</option>
+                  </select>
+                </div>
+              </div>
+              <div id="detail-content" class="detail-content"></div>
+              <div id="detail-files" class="files"></div>
+            </div>
+
+            <div class="detail-scroll">
+              <div class="work-grid">
+                <section class="work-box">
+                  <h4 class="work-box-title">处理记录</h4>
+                  <div class="field">
+                    <label for="admin-note">内部备注</label>
+                    <textarea id="admin-note" placeholder="只给管理员查看，不会同步给客户端"></textarea>
+                  </div>
+                  <div class="form-actions">
+                    <button id="save-status-btn">保存状态</button>
+                  </div>
+                </section>
+
+                <section class="work-box">
+                  <h4 class="work-box-title">回复用户</h4>
+                  <div class="field">
+                    <label for="reply-message">回复内容</label>
+                    <textarea id="reply-message" placeholder="客户端会看到管理员名称和这条回复"></textarea>
+                  </div>
+                  <div class="form-actions">
+                    <button id="send-reply-btn">发送回复</button>
+                  </div>
+                </section>
+              </div>
+
+              <section class="work-box" style="margin-top: 16px">
+                <h4 class="work-box-title">消息记录</h4>
+                <div id="message-stream" class="message-stream"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script>
+      let currentTicketId = null;
+      let currentInstallId = '';
+      let lastTickets = [];
+      let toastTimer = null;
+
+      async function api(path, options = {}) {
+        const headers = options.body instanceof FormData
+          ? options.headers || {}
+          : { 'Content-Type': 'application/json', ...(options.headers || {}) };
+        const resp = await fetch(path, {
+          credentials: 'same-origin',
+          headers,
+          ...options
+        });
+        const json = await resp.json().catch(() => ({ s: 'error', m: '服务返回异常' }));
+        if (!resp.ok || json.s !== 'ok') throw new Error(json.m || '请求失败');
+        return json.d;
+      }
+
+      function setLoggedIn(name) {
+        document.getElementById('login-panel').classList.toggle('hidden', !!name);
+        document.getElementById('app-panel').classList.toggle('hidden', !name);
+        document.getElementById('logout-btn').classList.toggle('hidden', !name);
+        document.body.classList.remove('detail-open');
+      }
+
+      function setBusy(id, busy) {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !!busy;
+      }
+
+      function showToast(message) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.add('hidden'), 2600);
+      }
+
+      function statusLabel(status) {
+        return {
+          pending: '未处理',
+          processing: '处理中',
+          resolved: '已处理',
+          closed: '已关闭'
+        }[status] || status || '-';
+      }
+
+      function statusBadge(status) {
+        return `<span class="status ${escapeAttr(status)}">${statusLabel(status)}</span>`;
+      }
+
+      function renderTickets(items) {
+        lastTickets = Array.isArray(items) ? items : [];
+        document.getElementById('ticket-count').textContent = String(lastTickets.length);
+        const list = document.getElementById('ticket-list');
+        if (!lastTickets.length) {
+          list.innerHTML = '<div class="empty">暂无工单</div>';
+          return;
+        }
+        list.innerHTML = lastTickets.map(item => `
+          <button class="ticket-item ${item.id === currentTicketId ? 'active' : ''}" data-id="${item.id}">
+            <div class="ticket-line">
+              <span class="ticket-no">${escapeHtml(item.ticket_no)}</span>
+              ${statusBadge(item.status)}
+            </div>
+            <div class="ticket-title">${escapeHtml(item.title)}</div>
+            <div class="ticket-meta">更新于 ${formatTime(item.updated_at)}</div>
+            ${item.latest_reply ? `<div class="ticket-reply">${escapeHtml(item.latest_reply.name)}：${escapeHtml(item.latest_reply.message)}</div>` : ''}
+          </button>
+        `).join('');
+        list.querySelectorAll('.ticket-item').forEach(el => {
+          el.addEventListener('click', () => loadTicket(Number(el.dataset.id)));
+        });
+      }
+
+      async function loadTickets(options = {}) {
+        const silent = !!options.silent;
+        const status = document.getElementById('status-filter').value;
+        const q = document.getElementById('search-input').value.trim();
+        const qs = new URLSearchParams();
+        if (status) qs.set('status', status);
+        if (q) qs.set('q', q);
+        if (!silent) {
+          document.getElementById('ticket-list').innerHTML = '<div class="empty">正在加载工单...</div>';
+        }
+        try {
+          const items = await api('/admin/api/tickets?' + qs.toString());
+          renderTickets(items);
+          if (currentTicketId && !items.find(x => x.id === currentTicketId)) {
+            currentTicketId = null;
+            clearDetail();
+          }
+        } catch (err) {
+          document.getElementById('ticket-list').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+        }
+      }
+
+      function clearDetail() {
+        currentInstallId = '';
+        document.getElementById('detail-empty').classList.remove('hidden');
+        document.getElementById('detail-wrap').classList.add('hidden');
+        document.body.classList.remove('detail-open');
+      }
+
+      async function loadTicket(id) {
+        currentTicketId = id;
+        document.body.classList.add('detail-open');
+        renderTickets(lastTickets);
+        try {
+          const detail = await api('/admin/api/tickets/' + id);
+          document.getElementById('detail-empty').classList.add('hidden');
+          document.getElementById('detail-wrap').classList.remove('hidden');
+          currentInstallId = detail.install_id || '';
+          document.getElementById('detail-ticket-no').textContent = `${detail.ticket_no || '-'} · 软件ID ${currentInstallId || '-'}`;
+          document.getElementById('detail-title').textContent = detail.title || '-';
+          document.getElementById('detail-meta').innerHTML = [
+            `联系方式 ${escapeHtml(detail.email || '-')}`,
+            `版本 ${escapeHtml(detail.app_version || '-')}`,
+            `创建 ${formatTime(detail.created_at)}`,
+            `更新 ${formatTime(detail.updated_at)}`
+          ].map(text => `<span>${text}</span>`).join('');
+          document.getElementById('detail-content').textContent = detail.content || '';
+          document.getElementById('detail-status').value = detail.status || 'pending';
+          document.getElementById('admin-note').value = detail.admin_note || '';
+          document.getElementById('reply-message').value = '';
+          renderFiles(detail.files || []);
+          await loadMessages(id);
+          await loadTickets({ silent: true });
+        } catch (err) {
+          showToast(err.message);
+        }
+      }
+
+      function renderFiles(files) {
+        const wrap = document.getElementById('detail-files');
+        if (!files.length) {
+          wrap.innerHTML = '';
+          return;
+        }
+        wrap.innerHTML = files.map(file => `
+          <a class="file-chip" href="${escapeAttr(file.download)}" target="_blank" rel="noreferrer">
+            ${escapeHtml(file.kind)} · ${escapeHtml(file.filename)} · ${formatSize(file.size)}
+          </a>
+        `).join('');
+      }
+
+      async function loadMessages(id) {
+        const stream = document.getElementById('message-stream');
+        if (!currentInstallId) {
+          stream.innerHTML = '<div class="empty">缺少客户端标识，无法加载消息</div>';
+          return;
+        }
+        const items = await api('/api/client/tickets/' + id + '/messages?install_id=' + encodeURIComponent(currentInstallId));
+        if (!items.length) {
+          stream.innerHTML = '<div class="empty">暂无消息记录</div>';
+          return;
+        }
+        stream.innerHTML = items.map(item => `
+          <div class="message ${item.author_type === 'admin' ? 'admin' : ''}">
+            <div class="message-head">
+              <span class="message-name">${escapeHtml(item.name)}</span>
+              <span class="muted">${formatTime(item.created_at)}</span>
+            </div>
+            <div class="message-body">${escapeHtml(item.message)}</div>
+          </div>
+        `).join('');
+      }
+
+      async function saveStatus() {
+        if (!currentTicketId) return;
+        setBusy('save-status-btn', true);
+        try {
+          await api('/admin/api/tickets/' + currentTicketId + '/status', {
+            method: 'POST',
+            body: JSON.stringify({
+              status: document.getElementById('detail-status').value,
+              admin_note: document.getElementById('admin-note').value.trim()
+            })
+          });
+          showToast('状态已保存');
+          await loadTicket(currentTicketId);
+        } catch (err) {
+          showToast(err.message);
+        } finally {
+          setBusy('save-status-btn', false);
+        }
+      }
+
+      async function sendReply() {
+        if (!currentTicketId) return;
+        const message = document.getElementById('reply-message').value.trim();
+        if (!message) {
+          showToast('请先填写回复内容');
+          return;
+        }
+        setBusy('send-reply-btn', true);
+        try {
+          await api('/admin/api/tickets/' + currentTicketId + '/messages', {
+            method: 'POST',
+            body: JSON.stringify({ message })
+          });
+          showToast('回复已发送');
+          document.getElementById('reply-message').value = '';
+          await loadTicket(currentTicketId);
+        } catch (err) {
+          showToast(err.message);
+        } finally {
+          setBusy('send-reply-btn', false);
+        }
+      }
+
+      function escapeHtml(str) {
+        return String(str || '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+      }
+
+      function escapeAttr(str) {
+        return escapeHtml(str).replace(/'/g, '&#39;');
+      }
+
+      function formatTime(input) {
+        const d = new Date(input);
+        return isNaN(d.getTime()) ? '-' : d.toLocaleString('zh-CN', { hour12: false });
+      }
+
+      function formatSize(size) {
+        const value = Number(size || 0);
+        if (value < 1024) return value + 'B';
+        if (value < 1024 * 1024) return (value / 1024).toFixed(1) + 'KB';
+        return (value / 1024 / 1024).toFixed(1) + 'MB';
+      }
+
+      document.getElementById('login-btn').addEventListener('click', async () => {
+        const user = document.getElementById('login-user').value.trim();
+        const pass = document.getElementById('login-pass').value;
+        if (!user || !pass) {
+          document.getElementById('login-msg').textContent = '请输入账号和密码';
+          return;
+        }
+        setBusy('login-btn', true);
+        try {
+          const data = await api('/admin/api/login', {
+            method: 'POST',
+            body: JSON.stringify({ username: user, password: pass })
+          });
+          document.getElementById('login-msg').textContent = '';
+          setLoggedIn(data.name);
+          await loadTickets();
+        } catch (err) {
+          document.getElementById('login-msg').textContent = err.message;
+        } finally {
+          setBusy('login-btn', false);
+        }
+      });
+
+      document.getElementById('login-pass').addEventListener('keydown', event => {
+        if (event.key === 'Enter') document.getElementById('login-btn').click();
+      });
+
+      document.getElementById('logout-btn').addEventListener('click', async () => {
+        try {
+          await api('/admin/api/logout', { method: 'POST', body: '{}' });
+        } finally {
+          currentTicketId = null;
+          clearDetail();
+          setLoggedIn('');
+        }
+      });
+
+      document.getElementById('search-btn').addEventListener('click', () => loadTickets());
+      document.getElementById('status-filter').addEventListener('change', () => loadTickets());
+      document.getElementById('search-input').addEventListener('keydown', event => {
+        if (event.key === 'Enter') loadTickets();
+      });
+      document.getElementById('save-status-btn').addEventListener('click', saveStatus);
+      document.getElementById('send-reply-btn').addEventListener('click', sendReply);
+      document.getElementById('back-list-btn').addEventListener('click', () => {
+        document.body.classList.remove('detail-open');
+      });
+
+      (async () => {
+        try {
+          const data = await api('/admin/api/session');
+          setLoggedIn(data.name);
+          await loadTickets();
+        } catch (_) {
+          setLoggedIn('');
+        }
+      })();
+    </script>
+  </body>
+</html>

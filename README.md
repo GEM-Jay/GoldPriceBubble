@@ -1,162 +1,228 @@
-# GoldPrice - Tauri 版本
+# GoldPrice
 
-## 项目简介
+GoldPrice 是一个基于 Tauri 的 Windows 桌面金价监控客户端，提供实时行情、悬浮气泡、仓库持仓与盈亏管理、走势图、托盘、工单反馈和自动更新能力。
 
-这是从Electron迁移到Tauri的GoldPrice金价监控桌面应用。
+## 功能
 
-### 迁移改进
+- 实时金价与相关市场数据展示
+- 管理窗口与气泡窗口联动
+- 仓库、交易记录、成本与实时盈亏
+- 今日、近 7 日、近 1 月等行情图表
+- 气泡样式、字体、主题、盈亏展示配置
+- 托盘、开机自启、客户端日志、自动更新
 
-- ✅ **体积大幅减小**: 从 ~100MB 减少到 ~15MB
-- ✅ **性能提升**: 使用Rust后端，更快的启动速度
-- ✅ **内存占用降低**: Tauri比Electron更轻量
-- ✅ **安全性增强**: Tauri的安全模型更严格
-- ✅ **完整功能保留**: 所有原有功能100%保留
+## 技术栈
 
-### 主要功能
+- 前端：Vite、Vue 3、TDesign Vue Next、ECharts
+- 桌面端：Tauri 1.x、Rust
+- 服务端：Go、HTTP、SSE、COS/CDN
 
-- 🪟 **双窗口系统**: 管理界面 + 透明气泡浮窗
-- 📊 **实时金价**: 多源金价数据监控
-- 🏦 **仓库管理**: 黄金交易记录与盈亏计算
-- 🎨 **主题定制**: 亮色/暗色主题，多种配色方案
-- 💰 **盈亏追踪**: 实时显示仓位盈亏
-- 🖥️ **系统托盘**: 便捷的快速操作
-- 🚀 **开机自启**: 支持Windows自动启动
-- 💾 **数据备份**: 配置导入导出功能
+说明：图表库使用 npm 依赖 `echarts`，不要恢复旧的 `src/echarts.min.js`。
 
-## 开发
+## 目录
 
-### 环境要求
+```text
+.
+├── src/                         # 前端页面、样式和业务模块
+├── src-tauri/                   # Tauri/Rust 后端与打包配置
+├── remote-servers/              # 配套远程服务
+├── docs/                        # 发布与更新说明
+└── scripts/                     # 版本号等辅助脚本
+```
 
+关键文件：
+
+- `src/manager-app.vue`：管理端 Vue 壳
+- `src/manager.js`：管理端主控制器
+- `src/bubble.js`：气泡窗口渲染与事件处理
+- `src/datasource.js`：字段表、显示名、币种、更新相关数据能力
+- `src/runtime.js`：Tauri API、日志、配置等运行时封装
+- `src/warehouse.js`：仓库与盈亏逻辑
+- `src-tauri/src/main.rs`：桌面端窗口、托盘、日志、更新器命令
+- `src-tauri/tauri.conf.json`：窗口和更新器配置
+
+## 环境要求
+
+- Windows 10 / 11
 - Node.js 16+
 - Rust 1.70+
-- Windows 10/11
+- WebView2 Runtime
 
-### 安装依赖
+## 快速开始
+
+安装依赖：
 
 ```bash
 npm install
 ```
 
-### 配置 API 地址
+复制本地配置：
 
-首次开发前需要配置服务地址：
-
-```bash
-# 复制配置文件模板
-cp src/config.example.js src/config.js
-
-# 编辑 src/config.js，填写你的服务地址
-# const SERVER_URL = 'https://api.example.com';
-# const COS_CDN = 'https://cdn.example.com';
-# const COS_APK = 'https://downloads.example.com';
-# const TICKET_SERVER_URL = 'https://ticket.example.com';
+```powershell
+Copy-Item src\config.example.js src\config.js
 ```
 
-**注意**: `src/config.js` 文件已在 `.gitignore` 中忽略，不会被提交到 Git，以保护你的服务器地址隐私。
+`src/config.js` 需要保持和模板同结构：
 
-### 开发模式
+```js
+export const SERVER_URL = 'https://api.example.com';
+export const COS_CDN = 'https://cdn.example.com';
+export const TICKET_SERVER_URL = 'https://ticket.example.com';
+```
+
+配置说明：
+
+- `SERVER_URL`：主行情服务，客户端会请求 `${SERVER_URL}/fields` 和 `${SERVER_URL}/stream`
+- `COS_CDN`：K 线 JSON CDN 地址
+- `TICKET_SERVER_URL`：工单服务地址
+
+## 常用命令
+
+```bash
+# 仅启动 Vite 前端
+npm run frontend:dev
+
+# 启动完整 Tauri 桌面应用
+npm run dev
+
+# 构建前端资源
+npm run frontend:build
+
+# 构建桌面应用
+npm run build
+
+# 构建 Windows x64 目标
+npm run build:windows:x64
+
+# 构建发布包
+npm run build:release
+npm run build:release:windows:x64
+
+# 同步版本号
+npm run setver -- 2.3.2
+
+# 生成 updater 签名密钥
+npm run updater:keygen
+```
+
+Go 服务常用命令：
+
+```bash
+cd remote-servers/<service>
+go test ./...
+go run .
+```
+
+Rust 后端测试：
+
+```bash
+cd src-tauri
+cargo test
+```
+
+## 远程服务
+
+`remote-servers/` 当前主要服务：
+
+- `app-control`：Tauri updater 元数据、legacy 版本/消息/心跳和轻量控制接口
+- `market-stream`：`/fields`、`/stream`、行情聚合、K 线生成
+- `ticket-center`：工单提交与管理
+
+更多说明见 [remote-servers/README.md](remote-servers/README.md)。
+
+## 开发说明
+
+- 前端保持 Vite 原生 ES module 结构
+- `manager-app.vue` 负责启动 `manager.js`
+- `bubble-app.js` 负责启动 `bubble.js`
+- Tauri API 访问应集中在 `runtime.js`
+- 客户端业务日志应走 `append_client_log`
+
+关键链路：
+
+- 行情启动：`/fields` -> `/stream` -> manager snapshot -> bubble render
+- 气泡配置：manager 保存 localStorage -> `config-update` / `bubble-refresh-now` -> bubble reload
+- 图表数据：通过 Tauri `httpFetch` 拉取 CDN K 线数据
+
+## 冒烟测试
+
+当前没有完整前端自动化测试。修改后至少建议执行：
+
+```bash
+npm run frontend:build
+```
+
+涉及桌面端行为时继续执行：
 
 ```bash
 npm run dev
 ```
 
-### 构建发布版
+重点检查：
 
-```bash
-# Windows
-npm run build:win
+- 管理窗口启动、导航、主题、窗口控制
+- `/fields` 拉取、`/stream` 首帧和重连
+- 气泡显示、resize、配置变化、盈亏展示
+- 仓库买卖、调仓、实时盈亏
+- 图表范围切换、刷新、主题联动
+- Tauri updater 更新弹窗、绿色更新提示、下载和安装入口
+- 工单提交与客户端日志附带
 
-# 或通用构建
-npm run build
+## 日志与排障
+
+客户端日志默认写入：
+
+```text
+%APPDATA%\com.lucas.goldprice\logs\app.log
 ```
 
-构建完成后，安装包位于 `src-tauri/target/release/bundle/` 目录。
+常见排查点：
 
-## 技术栈
+- 无法运行 `npm run dev`：检查 Rust/Cargo 与 WebView2
+- 管理端无数据：检查 `src/config.js`、`${SERVER_URL}/fields`、`${SERVER_URL}/stream`
+- 气泡不更新：检查 `prices-snapshot`、`config-update`、`bubble-refresh-now`
+- 图表无数据：检查 `${COS_CDN}` 下的 K 线 JSON 是否可访问
 
-### 前端
-- HTML5 / CSS3 / JavaScript (Vanilla)
-- LocalStorage (数据持久化)
-- Fetch API (数据获取)
+## 更新与发布
 
-### 后端
-- Rust
-- Tauri 1.5
-- auto-launch (开机自启)
-- window-shadows (窗口阴影)
+- 版本建议通过 `npm run setver -- <version>` 统一更新
+- 更新器与打包配置位于 `src-tauri/tauri.conf.json`
+- 客户端更新链路使用 Tauri 官方 updater
+- 稳定通道元数据地址：`https://api.zargo.top/updates/stable/latest.json`
+- 更新说明只读取 `latest.json` 的 `notes` 字段，并在更新弹窗中展示
+- 新客户端不再请求独立公告接口；`/announcements/latest` 和 `/releases/latest` 已删除
+- legacy 接口仅用于老客户端兼容：`/version`、`/message`、`/ping`、`/api/v2/update`、`/api/v2/message`、`/api/v2/heartbeat`
 
-## 项目结构
+发布产物托管在腾讯云 COS，命名规则固定为：
 
-```
-tauri/
-├── src/                    # 前端文件
-│   ├── manager.html       # 管理界面
-│   ├── manager.js
-│   ├── manager.css
-│   ├── bubble.html        # 气泡浮窗
-│   ├── bubble.js
-│   ├── bubble.css
-│   └── warehouse.js       # 仓库管理模块
-├── src-tauri/             # Rust后端
-│   ├── src/
-│   │   └── main.rs        # 主程序
-│   ├── icons/             # 应用图标
-│   ├── Cargo.toml         # Rust依赖
-│   └── tauri.conf.json    # Tauri配置
-└── package.json
+```text
+GoldPrice_{version}_x64-setup.exe
+GoldPrice_{version}_x64-setup.nsis.zip
+GoldPrice_{version}_x64-setup.nsis.zip.sig
 ```
 
-## 与Electron版本的差异
+每次发版需要上传安装包 exe、updater zip 和 zip.sig，并把 `.zip.sig` 文件全文填入 `latest.json` 的 `platforms.windows-x86_64.signature`。注意这里填的是签名文本，不是 `.sig` 文件 URL。
 
-### API变更
+推荐发布命令：
 
-| Electron | Tauri |
-|----------|-------|
-| `window.ipc.xxx()` | `invoke('xxx')` |
-| `ipcRenderer.on()` | `listen('event')` |
-| `ipcRenderer.send()` | `invoke()` / `emit()` |
-| preload.js | 不需要 (直接使用@tauri-apps/api) |
+```powershell
+npm run setver -- <version>
+$env:TAURI_PRIVATE_KEY="$env:USERPROFILE\.tauri\goldprice-updater.key"
+$env:TAURI_KEY_PASSWORD=""
+npm run build:release:windows:x64
+```
 
-### 配置文件
+发布说明见 [docs/updater-release.md](docs/updater-release.md)。
 
-- Electron: `package.json` (electron-builder配置)
-- Tauri: `tauri.conf.json` (窗口、托盘、构建配置)
+## 安全
 
-## 已测试功能
+不要提交：
 
-- ✅ 应用启动
-- ✅ 管理窗口显示
-- ✅ 气泡窗口显示
-- ✅ 系统托盘
-- ✅ 窗口拖动
-- ✅ 数据获取
-- ✅ LocalStorage持久化
-- ✅ 主题切换
-- ✅ 仓库管理
-- ✅ 数据导入导出
-- ✅ 开机自启设置
+- `src/config.js`
+- 真实服务地址、密钥、签名文件
+- 构建产物、安装包、日志
+- `node_modules/`、`dist/`、`src-tauri/target/`
 
-## 常见问题
-
-### 1. 透明窗口不生效？
-
-确保Windows启用了"透明效果"（设置 → 个性化 → 颜色 → 透明效果）
-
-### 2. 开发模式端口冲突？
-
-Tauri使用随机端口，不会有冲突。如果遇到问题，尝试重启开发服务器。
-
-### 3. 构建失败？
-
-- 确保Rust已正确安装：`rustc --version`
-- 更新依赖：`cargo update`
-- 清除缓存：`cargo clean`
-
-## 作者
-
-© 2025 Lucas Lee
-
-## 许可证
+## License
 
 MIT
-

@@ -4,9 +4,9 @@
 
 - `app-control`
   - 应用控制面服务
-  - 负责 `/version`、`/message`、`/ping` 与轻量统计
-  - `update.json` 只维护最新版本号，不托管安装包下载地址
-  - 客户端按 `https://downloads.example.com/GoldPrice_{version}_x64-setup.exe` 规则自行拼接下载链接
+  - 负责 `/message`、`/ping` 与轻量统计
+  - `update.json` 与 `/version`、`/api/v2/update` 已废弃，仅保留给历史代码兼容，不参与当前发版
+  - 当前客户端发布只使用 Tauri updater 的 `latest.json`
 
 - `market-stream`
   - 行情流服务

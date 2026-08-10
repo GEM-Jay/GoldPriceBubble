@@ -4,13 +4,13 @@
 // 2. 按你的部署环境填写下面的服务地址
 
 // 应用主服务地址（例如 https://api.example.com）
-const SERVER_URL = 'https://api.example.com';
+export const SERVER_URL = 'https://api.example.com';
 
 // 图表与历史数据 CDN 地址
-const COS_CDN = 'https://cdn.example.com';
+export const COS_CDN = 'https://cdn.example.com';
 
 // 安装包下载基础地址
-const COS_APK = 'https://downloads.example.com';
+export const COS_APK = 'https://downloads.example.com';
 
 // 工单服务地址
-const TICKET_SERVER_URL = 'https://ticket.example.com';
+export const TICKET_SERVER_URL = 'https://ticket.example.com';

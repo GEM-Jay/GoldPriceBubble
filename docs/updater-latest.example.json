@@ -1,0 +1,11 @@
+{
+  "version": "2.3.11",
+  "notes": "v2.3.11 更新说明\n\n1. 优化应用设置、更新提示和更新说明弹窗，显示更清晰稳定。\n2. 优化气泡设置和仓库管理页面，修复重复卡片、长名称换行和字号不一致问题。\n3. 加强 Windows 窗口 DPI 适配，减少部分机型右侧、底部异常白边。\n4. 提升浮窗稳定性：断流时保留缓存价格显示，异常退出后自动恢复。\n5. 延续 2.3.1 之后的更新链路、工单反馈、客户端日志、行情走势和仓库盈亏等功能优化。",
+  "pub_date": "2026-06-24T16:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNnUvQTJoOTR2dk1CYlVTWklOV0h4SXQzeU5LM29IU0VmSnVNT0hUNDMrbjIrK1dXT2hOdEhMTVphcDdDbGhrSXIyZUhoMU9NZldFZVk5RHUwcG5NVUIrRTZoYktuNUFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyMjM1OTYyCWZpbGU6R29sZFByaWNlXzIuMy4xMV94NjQtc2V0dXAubnNpcy56aXAKU2xDd2JyaWRCdzlPcG15djBQOWhUUFAzak9Uai9rRGN5Y0hQS3ROa1lrU3g4cUlHNm1GUkNRS1VEUjhJUFp0Q2ZtYUQ3VEtIU0RTSURDWlorOVVyQnc9PQo=",
+      "url": "https://apk.zargo.top/GoldPrice_2.3.11_x64-setup.nsis.zip"
+    }
+  }
+}

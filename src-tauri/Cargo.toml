@@ -1,6 +1,6 @@
 [package]
 name = "goldprice"
-version = "2.3.1"
+version = "2.3.11"
 description = "Gold price desktop client"
 authors = ["Lucas"]
 license = "MIT"
@@ -12,7 +12,7 @@ tauri-build = { version = "1.5", features = [] }
 cc = "1.0"
 
 [dependencies]
-tauri = { version = "1.5", features = [ "devtools", "dialog-all", "http-all", "system-tray", "window-all", "fs-all", "path-all", "shell-open"] }
+tauri = { version = "1.5", features = [ "devtools", "dialog-all", "http-all", "system-tray", "window-all", "fs-all", "path-all", "shell-open", "updater"] }
 tauri-plugin-single-instance = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -28,6 +28,7 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [
     "Win32_Foundation",
+    "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

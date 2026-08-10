@@ -1,15 +1,18 @@
 {
   "name": "goldprice-tauri",
-  "version": "2.3.1",
+  "version": "2.3.11",
   "description": "Gold price desktop client (Tauri)",
   "scripts": {
     "frontend:dev": "vite --host 127.0.0.1 --port 5173",
     "frontend:build": "vite build",
     "dev": "tauri dev",
     "build": "tauri build",
-    "build:win10": "tauri build --target x86_64-pc-windows-msvc",
-    "build:all": "npm run build:win10",
-    "setver": "node scripts/setver.js"
+    "build:windows:x64": "tauri build --target x86_64-pc-windows-msvc",
+    "build:release": "tauri build --bundles nsis,updater",
+    "build:release:windows:x64": "tauri build --target x86_64-pc-windows-msvc --bundles nsis,updater",
+    "build:all": "npm run build:release:windows:x64",
+    "setver": "node scripts/setver.js",
+    "updater:keygen": "tauri signer generate -w %USERPROFILE%/.tauri/goldprice-updater.key"
   },
   "author": "Lucas",
   "license": "MIT",

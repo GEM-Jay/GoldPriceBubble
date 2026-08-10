@@ -1,0 +1,27 @@
+services:
+  market-stream:
+    build: .
+    container_name: market-stream
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./sources.json:/app/sources.json:ro
+      - ./historyPrice:/app/historyPrice:ro
+      - ./klineData:/app/klineData
+    environment:
+      - PORT=8082
+      - COS_HOST=gold-price-1304316935.cos.ap-guangzhou.myqcloud.com
+      - COS_SECRET_ID=${COS_SECRET_ID}
+      - COS_SECRET_KEY=${COS_SECRET_KEY}
+    networks:
+      - synctv-net
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "1"
+
+networks:
+  synctv-net:
+    external: true

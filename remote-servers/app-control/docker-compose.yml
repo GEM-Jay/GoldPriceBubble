@@ -1,0 +1,18 @@
+services:
+  app-control:
+    build: .
+    container_name: app-control
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./update.json:/app/update.json
+      - ./message.json:/app/message.json
+      - ./data/stats.json:/app/stats.json
+    environment:
+      - PORT=8081
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "1"

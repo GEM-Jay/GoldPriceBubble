@@ -1,4 +1,16 @@
-<!-- fdae755b-389e-4620-942c-56b003d94a01 9eb4a405-691c-41c0-bcee-379ac5418062 -->
+---
+name: Fix Blank Page Issue
+overview: ""
+todos:
+  - id: d8a6e7c7-53fd-4e6f-af23-9bd2b0868b66
+    content: Add HTTP allowlist configuration to tauri.conf.json
+    status: pending
+  - id: 85b69629-da08-4686-b72d-e2efc5a3b078
+    content: Restart development server to apply changes
+    status: pending
+isProject: false
+---
+
 # Fix Blank Page Issue
 
 ## Root Cause
@@ -8,32 +20,21 @@ The JavaScript files are marked as `type="module"` in HTML, which causes them to
 ## Solution
 
 1. **Remove type="module" from manager.html** - Change the script tags from:
-   ```html
+  ```html
    <script type="module" src="warehouse.js"></script>
    <script type="module" src="manager.js"></script>
-   ```
-
+  ```
 
 to:
 
-   ```html
-   <script src="warehouse.js"></script>
-   <script src="manager.js"></script>
-   ```
-
-2. **Remove type="module" from bubble.html** - Change the script tag from:
-   ```html
+1. **Remove type="module" from bubble.html** - Change the script tag from:
+  ```html
    <script type="module" src="bubble.js"></script>
-   ```
-
+  ```
 
 to:
 
-   ```html
-   <script src="bubble.js"></script>
-   ```
-
-3. **Test the application** - Run `npm run dev` to verify pages load correctly and display data
+1. **Test the application** - Run `npm run dev` to verify pages load correctly and display data
 
 ## Expected Result
 
@@ -42,7 +43,3 @@ to:
 - All navigation tabs work properly
 - Bubble window displays price information
 
-### To-dos
-
-- [ ] Add HTTP allowlist configuration to tauri.conf.json
-- [ ] Restart development server to apply changes
