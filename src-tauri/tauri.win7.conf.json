@@ -1,0 +1,24 @@
+{
+  "package": {
+    "productName": "GoldPrice Legacy"
+  },
+  "tauri": {
+    "bundle": {
+      "identifier": "com.lucas.goldprice.win7",
+      "targets": ["nsis"],
+      "windows": {
+        "webviewInstallMode": {
+          "type": "fixedRuntime",
+          "path": "webview2-fixed-runtime",
+          "silent": null
+        },
+        "nsis": {
+          "installMode": "currentUser"
+        }
+      }
+    },
+    "updater": {
+      "active": false
+    }
+  }
+}

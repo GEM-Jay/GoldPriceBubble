@@ -1,0 +1,53 @@
+name: Windows 7 Compatibility
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-7-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-win7:
+    name: Build Windows 7 x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-22
+          components: rust-src
+      - name: Build and audit Win7 installer
+        shell: pwsh
+        run: ./scripts/win7/build-win7.ps1 -SkipToolchainInstall
+      - name: Upload Win7 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldprice-windows-7-x64
+          path: win7-artifacts/*
+          if-no-files-found: error
+
+  modern-windows-regression:
+    name: Modern Windows x64 regression
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build modern Windows target
+        run: npx --no-install tauri build --target x86_64-pc-windows-msvc --bundles none

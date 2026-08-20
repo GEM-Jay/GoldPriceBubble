@@ -10,6 +10,7 @@
     "build:windows:x64": "tauri build --target x86_64-pc-windows-msvc",
     "build:release": "tauri build --bundles nsis,updater",
     "build:release:windows:x64": "tauri build --target x86_64-pc-windows-msvc --bundles nsis,updater",
+    "build:windows:win7:x64": "powershell -ExecutionPolicy Bypass -File scripts/win7/build-win7.ps1",
     "build:all": "npm run build:release:windows:x64",
     "setver": "node scripts/setver.js",
     "updater:keygen": "tauri signer generate -w %USERPROFILE%/.tauri/goldprice-updater.key"

@@ -14,6 +14,10 @@ use tauri::{
 };
 use window_shadows::set_shadow;
 
+#[cfg(not(all(windows, target_vendor = "win7")))]
+mod taskbar_host;
+#[cfg(all(windows, target_vendor = "win7"))]
+#[path = "taskbar_host_win7.rs"]
 mod taskbar_host;
 use taskbar_host::{
     PriceDisplayMode, StatusCallback, TaskbarDisplayPayload, TaskbarDisplayStatus, TaskbarHost,
