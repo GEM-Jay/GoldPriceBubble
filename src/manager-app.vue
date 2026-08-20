@@ -316,18 +316,18 @@ onBeforeUnmount(() => {
             </t-button>
             <div class="window-controls">
               <button class="wc-btn wc-min" id="wc-min" title="最小化" aria-label="最小化">
-                <svg viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                  <path d="M4 9.5h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M4 10h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
                 </svg>
               </button>
               <button class="wc-btn wc-max" id="wc-max" title="最大化" aria-label="最大化">
-                <svg viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                  <rect x="4.2" y="4.2" width="9.6" height="9.6" rx="1.4" stroke="currentColor" stroke-width="1.6"></rect>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <rect x="4.5" y="4.5" width="11" height="11" rx="1.4" stroke="currentColor" stroke-width="1.6"></rect>
                 </svg>
               </button>
               <button class="wc-btn wc-close" id="wc-close" title="关闭" aria-label="关闭">
-                <svg viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                  <path d="M5 5l8 8M13 5l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
                 </svg>
               </button>
             </div>
@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
         </t-header>
 
         <t-content class="manager-main-content">
-          <div v-html="contentMarkup"></div>
+          <div class="manager-content-host" v-html="contentMarkup"></div>
         </t-content>
       </t-layout>
     </t-layout>

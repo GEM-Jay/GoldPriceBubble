@@ -77,12 +77,17 @@
     </div>
 
     <!-- 更新确认弹窗 -->
-    <div id="post-download-overlay" class="modal-overlay" style="display:none;">
+    <div id="post-download-overlay" class="modal-overlay update-confirm-overlay" style="display:none;">
       <div class="modal-box update-confirm-modal">
         <div class="modal-header update-confirm-header">
-          <div>
+          <div class="update-confirm-title-block">
             <h3 id="post-download-title" class="modal-title">发现新版本</h3>
           </div>
+          <button id="post-download-close" class="update-confirm-close" type="button" aria-label="关闭更新提示" title="关闭">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+            </svg>
+          </button>
         </div>
         <div class="modal-body update-confirm-body">
           <div class="update-confirm-meta-list">

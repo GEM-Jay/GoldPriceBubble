@@ -1,4 +1,6 @@
 import dataSource from './datasource.js';
+import { createApp, h } from 'vue';
+import { Button as TButton } from 'tdesign-vue-next';
 
 // =========================
 // warehouse.js - 仓库管理模块（重写 - 简洁版）
@@ -6,9 +8,125 @@ import dataSource from './datasource.js';
 
 let PRICES = [];
 let currentWarehouseId = null;
-const HISTORY_VERSION = 2;
+let _newWarehousePriceTimer = null;
+const _historyVisibleCounts = new Map();
+
+function _clearNewWarehousePriceTimer() {
+  if (_newWarehousePriceTimer !== null) {
+    clearInterval(_newWarehousePriceTimer);
+    _newWarehousePriceTimer = null;
+  }
+}
+const HISTORY_VERSION = 4;
+const COST_MODEL_VERSION = 4;
 const MAX_HISTORY_ITEMS = 300;
 let _notifySummary = null;
+
+function _deriveLegacyRealizedPnl(warehouse) {
+  if (warehouse.historyTrimmedAt || !Array.isArray(warehouse.history)) return 0;
+  let grams = 0;
+  let cost = 0;
+  let realizedPnl = 0;
+  for (const entry of warehouse.history) {
+    const tradeGrams = Number(entry.grams) || 0;
+    const tradePrice = Number(entry.price) || 0;
+    if (entry.type === 'adjust') {
+      // Older adjustment records stored grams in oldCost/newCost, so their cost basis
+      // cannot be reconstructed reliably. Preserve current holdings and start realized
+      // PnL tracking from zero rather than inventing a value.
+      return 0;
+    }
+    if ((entry.type === 'buy' || entry.type === 'open') && tradeGrams > 0 && tradePrice > 0) {
+      grams += tradeGrams;
+      cost += tradeGrams * tradePrice;
+    } else if (entry.type === 'sell' && tradeGrams > 0 && grams > 0) {
+      const soldGrams = Math.min(tradeGrams, grams);
+      const costBasis = cost * (soldGrams / grams);
+      realizedPnl += soldGrams * tradePrice - costBasis;
+      grams -= soldGrams;
+      cost -= costBasis;
+    }
+  }
+  return Number.isFinite(realizedPnl) ? realizedPnl : 0;
+}
+
+function _deriveLegacyCostState(warehouse, realizedPnl) {
+  const storedCost = Number(warehouse?.totalCost) || 0;
+  const history = Array.isArray(warehouse?.history) ? warehouse.history : [];
+  if (!history.length || warehouse.historyTrimmedAt) {
+    return {
+      investedCost: storedCost - realizedPnl,
+      inventoryCost: Math.max(0, storedCost),
+    };
+  }
+
+  let grams = 0;
+  let investedCost = 0;
+  let inventoryCost = 0;
+  for (const entry of history) {
+    const tradeGrams = Math.max(0, Number(entry.grams) || 0);
+    const tradePrice = Math.max(0, Number(entry.price) || 0);
+    if (entry.type === 'buy' || entry.type === 'open') {
+      const amount = tradeGrams * tradePrice;
+      grams += tradeGrams;
+      investedCost += amount;
+      inventoryCost += amount;
+    } else if (entry.type === 'sell' && grams > 0) {
+      const soldGrams = Math.min(tradeGrams, grams);
+      const proceeds = Number.isFinite(Number(entry.proceeds))
+        ? Number(entry.proceeds)
+        : soldGrams * tradePrice;
+      const costBasis = Number.isFinite(Number(entry.costBasis))
+        ? Number(entry.costBasis)
+        : inventoryCost * (soldGrams / grams);
+      grams -= soldGrams;
+      investedCost -= proceeds;
+      inventoryCost = grams > 0 ? Math.max(0, inventoryCost - costBasis) : 0;
+    } else if (entry.type === 'adjust') {
+      const newGrams = Math.max(0, Number(entry.newGrams ?? entry.newCost) || 0);
+      const explicitCost = Number(entry.costAfter ?? entry.newCost);
+      const newCostPrice = Number(entry.newCostPrice);
+      const adjustedCost = Number.isFinite(explicitCost)
+        ? explicitCost
+        : newGrams * (Number.isFinite(newCostPrice) ? Math.max(0, newCostPrice) : 0);
+      grams = newGrams;
+      investedCost = adjustedCost;
+      inventoryCost = Math.max(0, adjustedCost);
+    }
+  }
+  return { investedCost, inventoryCost };
+}
+
+function _normalizeWarehouse(warehouse) {
+  const totalGrams = Math.max(0, Number(warehouse?.totalGrams) || 0);
+  const realizedPnl = warehouse?.costModelVersion >= 2
+    ? (Number(warehouse.realizedPnl) || 0)
+    : _deriveLegacyRealizedPnl(warehouse || {});
+  const legacyCostState = warehouse?.costModelVersion >= 3
+    ? null
+    : _deriveLegacyCostState(warehouse || {}, realizedPnl);
+  const totalCost = legacyCostState
+    ? legacyCostState.investedCost
+    : (Number(warehouse?.totalCost) || 0);
+  const { inventoryCost: _oldInventoryCost, realizedPnl: _oldRealizedPnl, ...rest } = warehouse || {};
+  return {
+    ...rest,
+    totalGrams,
+    totalCost: Math.round((totalCost + Number.EPSILON) * 100) / 100,
+    costModelVersion: COST_MODEL_VERSION,
+    history: Array.isArray(warehouse?.history) ? warehouse.history : [],
+  };
+}
+
+function _getCostMetrics(warehouse, currentPrice = 0) {
+  const grams = Math.max(0, Number(warehouse?.totalGrams) || 0);
+  const holdingCost = Number(warehouse?.totalCost) || 0;
+  const currentValue = _roundMoney(grams * (Number(currentPrice) || 0));
+  const totalPnl = _roundMoney(currentValue - holdingCost);
+  // 工行口径：成本价是累计净投入除以当前持有份额。
+  const avgCost = grams > 0 ? holdingCost / grams : 0;
+  return { grams, holdingCost, currentValue, totalPnl, avgCost };
+}
 
 function _trimWarehouseHistory(warehouse) {
   const history = Array.isArray(warehouse.history) ? warehouse.history : [];
@@ -44,7 +162,14 @@ function _trimWarehouseHistory(warehouse) {
 function loadWarehouses() {
   try {
     const raw = localStorage.getItem('warehouses');
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    const needsMigration = parsed.some(warehouse => warehouse?.costModelVersion !== COST_MODEL_VERSION);
+    const normalized = parsed.map(_normalizeWarehouse);
+    if (needsMigration) {
+      localStorage.setItem('warehouses', JSON.stringify(normalized.map(_trimWarehouseHistory)));
+    }
+    return normalized;
   } catch (_) {
     return [];
   }
@@ -52,9 +177,13 @@ function loadWarehouses() {
 
 function saveWarehouses(list) {
   try {
-    const normalized = Array.isArray(list) ? list.map(_trimWarehouseHistory) : [];
+    const normalized = Array.isArray(list)
+      ? list.map(_normalizeWarehouse).map(_trimWarehouseHistory)
+      : [];
     localStorage.setItem('warehouses', JSON.stringify(normalized));
+    return true;
   } catch (_) {
+    return false;
   }
 }
 
@@ -73,6 +202,39 @@ function fmt(v, decimals = 2) {
   return num.toFixed(decimals).replace(/\.?0+$/, '');
 }
 
+function fmtMoney(v) {
+  const num = Number(v);
+  if (!Number.isFinite(num)) return '—';
+  return num.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function _numberLoadingDotsMarkup() {
+  return `<span class="number-loading-dots" role="status" aria-label="行情加载中">
+    <span class="number-loading-dot"></span>
+    <span class="number-loading-dot"></span>
+    <span class="number-loading-dot"></span>
+  </span>`;
+}
+
+function _getHistoryDisplayType(entry, historyIndex, warehouseId) {
+  if (entry?.type === 'open') return 'open';
+  const createdAt = Number(warehouseId);
+  const timestamp = Number(entry?.timestamp);
+  const isLegacyOpeningEntry = entry?.type === 'buy'
+    && historyIndex === 0
+    && Number.isFinite(createdAt)
+    && Number.isFinite(timestamp)
+    && Math.abs(timestamp - createdAt) <= 10000;
+  return isLegacyOpeningEntry ? 'open' : entry?.type;
+}
+
+function _roundMoney(value) {
+  return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+}
+
 function formatDateTime(timestamp) {
   if (!timestamp) return '—';
   const d = new Date(timestamp);
@@ -82,6 +244,137 @@ function formatDateTime(timestamp) {
   const hour = String(d.getHours()).padStart(2, '0');
   const minute = String(d.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day} ${hour}:${minute}`;
+}
+
+function _showWarehouseDialog({ title = '提示', message = '', details = [], type = 'info', confirmText = '确定', cancelText = '' }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'warehouse-dialog-overlay';
+    overlay.innerHTML = `
+      <div class="warehouse-dialog" role="dialog" aria-modal="true" aria-labelledby="warehouse-dialog-title">
+        <div class="warehouse-dialog-main">
+          <div class="warehouse-dialog-icon" aria-hidden="true"></div>
+          <div class="warehouse-dialog-content">
+            <h3 id="warehouse-dialog-title" class="warehouse-dialog-title"></h3>
+          </div>
+        </div>
+        <p class="warehouse-dialog-message"></p>
+        <dl class="warehouse-dialog-details"></dl>
+        <div class="warehouse-dialog-actions"></div>
+      </div>
+    `;
+    overlay.dataset.type = type;
+    overlay.querySelector('.warehouse-dialog-title').textContent = title;
+    const messageEl = overlay.querySelector('.warehouse-dialog-message');
+    messageEl.textContent = message;
+    messageEl.hidden = !message;
+    const detailsEl = overlay.querySelector('.warehouse-dialog-details');
+    const normalizedDetails = Array.isArray(details) ? details : [];
+    normalizedDetails.forEach((detail) => {
+      const row = document.createElement('div');
+      row.className = 'warehouse-dialog-detail-row';
+      const label = document.createElement('dt');
+      label.textContent = detail?.label || '';
+      const value = document.createElement('dd');
+      value.textContent = detail?.value || '';
+      row.append(label, value);
+      detailsEl.appendChild(row);
+    });
+    detailsEl.hidden = normalizedDetails.length === 0;
+
+    let buttonApp = null;
+    let closed = false;
+    const close = (result) => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKeydown);
+      buttonApp?.unmount();
+      overlay.classList.remove('is-visible');
+      setTimeout(() => overlay.remove(), 140);
+      resolve(result);
+    };
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') close(false);
+      if (event.key === 'Enter') close(true);
+    };
+    const actionsEl = overlay.querySelector('.warehouse-dialog-actions');
+    buttonApp = createApp({
+      render() {
+        const buttons = [];
+        if (cancelText) {
+          buttons.push(h(TButton, {
+            class: 'warehouse-dialog-cancel',
+            theme: 'default',
+            variant: 'outline',
+            size: 'small',
+            onClick: () => close(false),
+          }, () => cancelText));
+        }
+        buttons.push(h(TButton, {
+          class: 'warehouse-dialog-confirm',
+          theme: type === 'danger' ? 'danger' : 'primary',
+          size: 'small',
+          onClick: () => close(true),
+        }, () => confirmText));
+        return h('div', { class: 'warehouse-dialog-button-group' }, buttons);
+      },
+    });
+    buttonApp.mount(actionsEl);
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay && cancelText) close(false);
+    });
+    document.addEventListener('keydown', onKeydown);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => {
+      overlay.classList.add('is-visible');
+      overlay.querySelector('.warehouse-dialog-confirm')?.focus();
+    });
+  });
+}
+
+function _showWarehouseNotice(message, type = 'success') {
+  const titles = { success: '操作成功', error: '操作未完成', info: '提示' };
+  let region = document.querySelector('.warehouse-toast-region');
+  if (!region) {
+    region = document.createElement('div');
+    region.className = 'warehouse-toast-region';
+    region.setAttribute('aria-live', 'polite');
+    document.body.appendChild(region);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'warehouse-toast';
+  toast.dataset.type = type;
+  toast.innerHTML = `
+    <span class="warehouse-toast-icon" aria-hidden="true"></span>
+    <span class="warehouse-toast-copy">
+      <strong class="warehouse-toast-title"></strong>
+      <span class="warehouse-toast-message"></span>
+    </span>
+  `;
+  toast.querySelector('.warehouse-toast-title').textContent = titles[type] || titles.info;
+  toast.querySelector('.warehouse-toast-message').textContent = message;
+  region.appendChild(toast);
+  while (region.children.length > 3) region.firstElementChild?.remove();
+  requestAnimationFrame(() => toast.classList.add('is-visible'));
+  setTimeout(() => {
+    toast.classList.remove('is-visible');
+    setTimeout(() => {
+      toast.remove();
+      if (!region.children.length) region.remove();
+    }, 180);
+  }, type === 'error' ? 3600 : 2600);
+}
+
+function _confirmWarehouseAction(message, options = {}) {
+  return _showWarehouseDialog({
+    title: options.title || '请确认操作',
+    message,
+    details: options.details || [],
+    type: options.danger ? 'danger' : 'info',
+    confirmText: options.confirmText || '确认',
+    cancelText: '取消',
+  });
 }
 
 // 获取显示名称
@@ -147,7 +440,9 @@ function getWarehouseSummary() {
     totalValue += (w.totalGrams || 0) * currentPrice;
   });
   
-  const totalPnl = totalValue - totalCost;
+  totalCost = _roundMoney(totalCost);
+  totalValue = _roundMoney(totalValue);
+  const totalPnl = _roundMoney(totalValue - totalCost);
   
   return { totalGrams, totalCost, totalValue, totalPnl };
 }
@@ -156,6 +451,7 @@ function getWarehouseSummary() {
 // 渲染仓库列表
 // ============================================
 function renderWarehouseList() {
+  _clearNewWarehousePriceTimer();
   const warehouses = loadWarehouses();
   const container = document.getElementById('warehouse-list');
   if (!container) return;
@@ -163,7 +459,9 @@ function renderWarehouseList() {
   // 新建仓库按钮（放在顶部）
   const newWarehouseBtn = `
     <button class="warehouse-new-btn gp-btn-primary" data-action="show-new-warehouse">
-      <span class="new-btn-icon">+</span>
+      <span class="new-btn-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </span>
       <span class="new-btn-copy">
         <span class="new-btn-text">新建仓库</span>
       </span>
@@ -186,9 +484,10 @@ function renderWarehouseList() {
 
   const warehouseItemsHTML = warehouses.map(w => {
     const priceObj = PRICES.find(p => p.code === w.refPrice);
-    const currentPrice = priceObj?.value || 0;
-    const currentValue = (w.totalGrams || 0) * currentPrice;
-    const pnl = currentValue - (w.totalCost || 0);
+    const currentPrice = Number(priceObj?.value);
+    const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
+    const metrics = _getCostMetrics(w, currentPrice);
+    const pnl = metrics.totalPnl;
     const cost = w.totalCost || 0;
     
     return `
@@ -199,11 +498,15 @@ function renderWarehouseList() {
           <div class="warehouse-name">${w.name}</div>
           <div class="warehouse-item-badge">${getRefPriceLabel(w.refPrice)}</div>
         </div>
-        <div class="warehouse-item-metrics">
-          <span>${fmt(w.totalGrams, 2)}g</span>
-          <span class="${pnl >= 0 ? 'metric-profit' : 'metric-loss'}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥</span>
+        <div class="warehouse-item-bottom">
+          <span class="warehouse-stats-mini">总成本 ${fmt(cost, 2)}¥</span>
+          <div class="warehouse-item-metrics">
+            <span>${fmt(w.totalGrams, 2)}g</span>
+            ${hasLivePrice
+              ? `<span class="${pnl >= 0 ? 'metric-profit' : 'metric-loss'}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥</span>`
+              : _numberLoadingDotsMarkup()}
+          </div>
         </div>
-        <div class="warehouse-stats-mini">总成本 ${fmt(cost, 2)}¥</div>
       </div>
     `;
   }).join('');
@@ -228,6 +531,7 @@ function renderWarehouseList() {
 // 渲染仓库详情
 // ============================================
 function renderWarehouseDetail(id) {
+  _clearNewWarehousePriceTimer();
   const warehouses = loadWarehouses();
   const warehouse = warehouses.find(w => w.id === id);
   if (!warehouse) {
@@ -239,15 +543,17 @@ function renderWarehouseDetail(id) {
 
   // 更新价格
   const priceObj = PRICES.find(p => p.code === warehouse.refPrice);
-  const currentPrice = priceObj?.value || 0;
+  const currentPrice = Number(priceObj?.value);
+  const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
   const currency = getCurrency(warehouse.refPrice);
 
   // 计算盈亏
-  const totalCost = warehouse.totalCost || 0;
-  const currentValue = warehouse.totalGrams * currentPrice;
-  const pnl = currentValue - totalCost;
+  const metrics = _getCostMetrics(warehouse, currentPrice);
+  const totalCost = metrics.holdingCost;
+  const currentValue = metrics.currentValue;
+  const pnl = metrics.totalPnl;
   const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
-  const avgCost = warehouse.totalGrams > 0 ? totalCost / warehouse.totalGrams : 0;
+  const avgCost = metrics.avgCost;
 
   const detail = document.getElementById('warehouse-detail');
   detail.innerHTML = `
@@ -258,8 +564,8 @@ function renderWarehouseDetail(id) {
           <h2 class="warehouse-title">${warehouse.name}</h2>
           <div class="warehouse-hero-meta">
             <span>参考金价：${getRefPriceLabel(warehouse.refPrice)}</span>
-            <span id="warehouse-hero-price-${id}">当前价格：${fmt(currentPrice, 2)} ${currency}/g</span>
-            <span id="warehouse-hero-pnl-pct-${id}">收益率：${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%</span>
+            <span>当前总成本：${fmt(totalCost, 2)} ¥</span>
+            <span>总克数：${fmt(warehouse.totalGrams, 4)}g</span>
           </div>
         </div>
         <div class="warehouse-hero-actions">
@@ -276,27 +582,27 @@ function renderWarehouseDetail(id) {
         <div class="status-grid">
           <div class="status-item">
             <span class="status-label">当前价格</span>
-            <span class="status-value" id="warehouse-current-price-${id}">${fmt(currentPrice, 2)} ¥/g</span>
+            <span class="status-value" id="warehouse-current-price-${id}">${hasLivePrice ? `${fmtMoney(currentPrice)} ${currency}/g` : _numberLoadingDotsMarkup()}</span>
           </div>
           <div class="status-item">
-            <span class="status-label">持仓数量</span>
-            <span class="status-value">${fmt(warehouse.totalGrams, 4)} g</span>
+            <span class="status-label">持有份额</span>
+            <span class="status-value">${fmt(warehouse.totalGrams, 4)}g</span>
           </div>
           <div class="status-item">
             <span class="status-label">市值</span>
-            <span class="status-value" id="warehouse-value-${id}">${fmt(currentValue, 2)} ¥</span>
-          </div>
-          <div class="status-item ${pnl >= 0 ? 'positive' : 'negative'}">
-            <span class="status-label">盈亏</span>
-            <span class="status-value" id="warehouse-pnl-${id}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ¥</span>
+            <span class="status-value" id="warehouse-value-${id}">${hasLivePrice ? `${fmt(currentValue, 2)} ¥` : _numberLoadingDotsMarkup()}</span>
           </div>
           <div class="status-item">
-            <span class="status-label">成本价</span>
-            <span class="status-value">${fmt(avgCost, 2)} ¥/g</span>
+            <span class="status-label">成本（克价）</span>
+            <span class="status-value">${fmtMoney(avgCost)} ¥/g</span>
           </div>
-          <div class="status-item">
-            <span class="status-label">总成本</span>
-            <span class="status-value">${fmt(totalCost, 2)} ¥</span>
+          <div class="status-item ${hasLivePrice ? (pnl >= 0 ? 'positive' : 'negative') : ''}">
+            <span class="status-label">当前盈亏</span>
+            <span class="status-value" id="warehouse-pnl-${id}">${hasLivePrice ? `${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)} ¥` : _numberLoadingDotsMarkup()}</span>
+          </div>
+          <div class="status-item ${hasLivePrice ? (pnl >= 0 ? 'positive' : 'negative') : ''}">
+            <span class="status-label">盈亏比</span>
+            <span class="status-value" id="warehouse-pnl-pct-${id}">${hasLivePrice ? `${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%` : _numberLoadingDotsMarkup()}</span>
           </div>
         </div>
 
@@ -324,16 +630,16 @@ function renderWarehouseDetail(id) {
           <h3 class="block-title">交易操作</h3>
           <div class="trade-form-stacked">
             <div class="form-row">
-              <label>数量（克）</label>
+              <label>数量（g）</label>
               <input type="number" id="buy-grams-${id}" placeholder="0.000" step="0.0001" min="0">
             </div>
             <div class="form-row">
               <label>价格（¥/g）</label>
-              <input type="number" id="buy-price-${id}" placeholder="${fmt(currentPrice, 2)}" step="0.01" min="0" value="${fmt(currentPrice, 2)}" data-auto-price="${fmt(currentPrice, 2)}">
+              <input type="number" id="buy-price-${id}" placeholder="请输入实际成交价格" step="0.01" min="0">
             </div>
             <div class="form-row form-row-buttons">
-              <button class="btn btn-primary gp-btn-primary warehouse-btn-primary" data-action="buy-warehouse" data-warehouse-id="${id}">买入</button>
-              <button class="btn btn-danger gp-btn-danger" data-action="sell-warehouse" data-warehouse-id="${id}">卖出</button>
+              <button class="btn btn-danger gp-btn-danger warehouse-action-btn" data-action="sell-warehouse" data-warehouse-id="${id}">卖出</button>
+              <button class="btn btn-primary gp-btn-primary warehouse-btn-primary warehouse-action-btn" data-action="buy-warehouse" data-warehouse-id="${id}">买入</button>
             </div>
           </div>
         </div>
@@ -342,7 +648,7 @@ function renderWarehouseDetail(id) {
           <h3 class="block-title">调整当前仓位</h3>
           <div class="adjust-form-stacked">
             <div class="form-row">
-              <label>持仓数量（克）</label>
+              <label>持仓数量（g）</label>
               <input type="number" id="adjust-grams-${id}" placeholder="${fmt(warehouse.totalGrams, 4)}" step="0.0001" min="0">
             </div>
             <div class="form-row">
@@ -359,50 +665,38 @@ function renderWarehouseDetail(id) {
       <div class="warehouse-block block-history">
         <div class="block-header-with-action">
           <h3 class="block-title">交易记录</h3>
-          <span class="warehouse-block-caption">按时间倒序展示最近操作</span>
+          <span class="warehouse-block-caption">默认展示最近 3 条操作</span>
         </div>
         <div class="history-list">
-          ${warehouse.history && warehouse.history.length > 0 ? 
-            warehouse.history.slice().reverse().map((h, index) => {
-              // 计算操作后的状态（从后往前遍历）
-              let gramsAfter = warehouse.totalGrams;
-              let costAfter = warehouse.totalCost;
-              
-              // 重新计算每一步的状态
-              const historyAfterThis = warehouse.history.slice(warehouse.history.indexOf(h) + 1);
-              historyAfterThis.forEach(laterH => {
-                if (laterH.type === 'buy') {
-                  gramsAfter -= laterH.grams;
-                  costAfter -= laterH.grams * laterH.price;
-                } else if (laterH.type === 'sell') {
-                  gramsAfter += laterH.grams;
-                  costAfter += laterH.grams * laterH.price;
-                } else if (laterH.type === 'adjust') {
-                  gramsAfter = laterH.oldCost;
-                  costAfter = laterH.oldCost * (laterH.newCost / laterH.oldCost || 0);
-                }
-              });
-              
-              const pnlAtTime = h.type === 'adjust' ? 0 : (gramsAfter * currentPrice - costAfter);
+          ${warehouse.history && warehouse.history.length > 0 ? (() => {
+            const historyItems = warehouse.history
+              .map((entry, historyIndex) => ({ entry, historyIndex }))
+              .reverse();
+            const visibleCount = _historyVisibleCounts.get(id) || 3;
+            const visibleItems = historyItems.slice(0, visibleCount);
+            const rows = visibleItems.map(({ entry: h, historyIndex }) => {
+              const displayType = _getHistoryDisplayType(h, historyIndex, warehouse.id);
+              const oldGrams = h.oldGrams ?? h.oldCost;
+              const newGrams = h.newGrams ?? h.newCost;
+              const detailText = h.type !== 'adjust'
+                ? `${fmt(h.grams, 4)}g × ${fmtMoney(h.price)} ¥/g = ¥${fmtMoney(h.amount ?? (h.grams * h.price))}`
+                : `持仓 ${fmt(oldGrams, 4)}g → ${fmt(newGrams, 4)}g${Number.isFinite(Number(h.newCostPrice)) ? ` · 成本价 ${fmtMoney(h.newCostPrice)} ¥/g` : ''}`;
               
               return `
-                <div class="history-item-detailed history-${h.type}">
-                  <div class="history-row-1">
-                    <span class="history-badge">${h.type === 'buy' ? '买入' : h.type === 'sell' ? '卖出' : '调整'}</span>
+                <div class="history-item-detailed history-${displayType}">
+                  <div class="history-row-compact">
+                    <span class="history-badge">${displayType === 'open' ? '建仓' : displayType === 'buy' ? '买入' : displayType === 'sell' ? '卖出' : '调整'}</span>
+                    <span class="history-detail">${detailText}</span>
                     <span class="history-time">${formatDateTime(h.timestamp)}</span>
-                  </div>
-                  <div class="history-row-2">
-                    ${h.type !== 'adjust' ? 
-                      `<span class="history-detail">操作：${fmt(h.grams, 4)}g @ ${fmt(h.price, 2)}¥/g = ${fmt(h.grams * h.price, 2)}¥</span>` :
-                      `<span class="history-detail">操作：持仓 ${fmt(h.oldCost, 4)}g → ${fmt(h.newCost, 4)}g</span>`
-                    }
-                  </div>
-                  <div class="history-row-3">
-                    <span class="history-after">执行后：${fmt(gramsAfter, 4)}g | 成本:${fmt(costAfter, 2)}¥ | 市值:${fmt(gramsAfter * currentPrice, 2)}¥ | 营收:${pnlAtTime >= 0 ? '+' : ''}${fmt(pnlAtTime, 2)}¥</span>
                   </div>
                 </div>
               `;
-            }).join('') :
+            }).join('');
+            const more = historyItems.length > visibleCount
+              ? `<button type="button" class="history-more-btn" data-action="show-more-history" data-warehouse-id="${id}">More →</button>`
+              : '';
+            return rows + more;
+          })() :
             '<div class="empty-state">暂无交易记录</div>'
           }
         </div>
@@ -427,6 +721,7 @@ function _buildRefPriceSelect(selectedCode) {
 }
 
 function showNewWarehouseForm() {
+  _clearNewWarehousePriceTimer();
   const detail = document.getElementById('warehouse-detail');
   detail.innerHTML = `
     <div class="warehouse-detail-container">
@@ -451,7 +746,7 @@ function showNewWarehouseForm() {
           ${_buildRefPriceSelect('')}
         </div>
         <div class="form-row">
-          <label>总克重（克）</label>
+          <label>总克重（g）</label>
           <input type="number" id="new-warehouse-grams" placeholder="0.0000" step="0.0001" min="0">
         </div>
         <div class="form-row">
@@ -468,9 +763,9 @@ function showNewWarehouseForm() {
 
   // 数据未到时轮询，到了就自动填充 select
   if (getRefPriceItems().length === 0) {
-    const _timer = setInterval(() => {
+    _newWarehousePriceTimer = setInterval(() => {
       const refRow = document.getElementById('new-warehouse-ref-row');
-      if (!refRow) { clearInterval(_timer); return; } // 表单已关闭
+      if (!refRow) { _clearNewWarehousePriceTimer(); return; } // 表单已关闭
       const rmbPrices = getRefPriceItems();
       if (rmbPrices.length > 0) {
         const label = refRow.querySelector('label');
@@ -479,7 +774,7 @@ function showNewWarehouseForm() {
         const tmp = document.createElement('div');
         tmp.innerHTML = _buildRefPriceSelect('');
         refRow.appendChild(tmp.firstElementChild);
-        clearInterval(_timer);
+        _clearNewWarehousePriceTimer();
       }
     }, 800);
   }
@@ -490,6 +785,7 @@ function showNewWarehouseForm() {
 }
 
 function cancelNewWarehouse() {
+  _clearNewWarehousePriceTimer();
   if (currentWarehouseId) {
     renderWarehouseDetail(currentWarehouseId);
   } else {
@@ -501,13 +797,14 @@ function cancelNewWarehouse() {
 // 创建仓库
 // ============================================
 function createWarehouse() {
+  _clearNewWarehousePriceTimer();
   const name = document.getElementById('new-warehouse-name')?.value.trim();
   const refPrice = document.getElementById('new-warehouse-ref')?.value;
   const gramsInput = document.getElementById('new-warehouse-grams')?.value;
   const totalCostInput = document.getElementById('new-warehouse-total-cost')?.value;
 
   if (!name) {
-    alert('请输入仓库名称');
+    _showWarehouseNotice('请输入仓库名称', 'error');
     return;
   }
 
@@ -521,8 +818,9 @@ function createWarehouse() {
     refPrice,
     totalGrams: grams,
     totalCost: totalCost,
+    costModelVersion: COST_MODEL_VERSION,
     history: grams > 0 && totalCost > 0 ? [{
-      type: 'buy',
+      type: 'open',
       grams: grams,
       price: totalCost / grams,
       timestamp: Date.now()
@@ -530,10 +828,14 @@ function createWarehouse() {
   };
 
   warehouses.push(newWarehouse);
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
 
   currentWarehouseId = newWarehouse.id;
   renderWarehouseList();
+  _showWarehouseNotice('仓库已创建');
 
   // 触发仓库变化事件
   window.dispatchEvent(new CustomEvent('warehousesChanged'));
@@ -543,8 +845,15 @@ function createWarehouse() {
 // 选择仓库
 // ============================================
 function selectWarehouse(id) {
+  if (currentWarehouseId && currentWarehouseId !== id) {
+    _historyVisibleCounts.delete(currentWarehouseId);
+  }
   currentWarehouseId = id;
   renderWarehouseList();
+}
+
+function resetHistoryPagination() {
+  _historyVisibleCounts.clear();
 }
 
 // ============================================
@@ -556,33 +865,36 @@ function renameWarehouse(id) {
   const warehouse = warehouses.find(w => w.id === id);
   
   if (!warehouse) {
-    alert('仓库不存在！');
+    _showWarehouseNotice('仓库不存在', 'error');
     return;
   }
   
   // 从输入框获取新名称
   const renameInput = document.getElementById(`rename-input-${id}`);
   if (!renameInput) {
-    alert('输入框不存在！');
+    _showWarehouseNotice('仓库名称输入框不可用，请重新打开页面', 'error');
     return;
   }
   
   const newName = renameInput.value.trim();
   
   if (!newName) {
-    alert('仓库名称不能为空！');
+    _showWarehouseNotice('仓库名称不能为空', 'error');
     return;
   }
   
   // 检查名称是否重复
   if (warehouses.some(w => w.id !== id && w.name === newName)) {
-    alert('仓库名称已存在！');
+    _showWarehouseNotice('仓库名称已存在', 'error');
     return;
   }
   
   // 更新名称
   warehouse.name = newName;
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
   
   // 刷新显示
   renderWarehouseList();
@@ -597,14 +909,14 @@ function changeRefPrice(id) {
   const warehouse = warehouses.find(w => w.id === id);
   
   if (!warehouse) {
-    alert('仓库不存在！');
+    _showWarehouseNotice('仓库不存在', 'error');
     return;
   }
   
   // 从下拉菜单获取新的价格参考
   const refPriceSelect = document.getElementById(`refprice-select-${id}`);
   if (!refPriceSelect) {
-    alert('下拉菜单不存在！');
+    _showWarehouseNotice('参考金价选择器不可用，请重新打开页面', 'error');
     return;
   }
   
@@ -612,7 +924,10 @@ function changeRefPrice(id) {
   
   // 更新价格参考
   warehouse.refPrice = newRefPrice;
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
   
   // 刷新显示
   renderWarehouseList();
@@ -621,14 +936,21 @@ function changeRefPrice(id) {
   window.dispatchEvent(new CustomEvent('warehousesChanged'));
 }
 
-function deleteWarehouse(id) {
-  if (!confirm('确定要删除这个仓库吗？所有交易记录将被清除。')) {
+async function deleteWarehouse(id) {
+  if (!await _confirmWarehouseAction('删除后，该仓库及其全部交易记录将无法恢复。', {
+    title: '删除仓库',
+    confirmText: '删除',
+    danger: true,
+  })) {
     return;
   }
 
   let warehouses = loadWarehouses();
   warehouses = warehouses.filter(w => w.id !== id);
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
 
   if (currentWarehouseId === id) {
     currentWarehouseId = null;
@@ -638,12 +960,13 @@ function deleteWarehouse(id) {
 
   // 触发仓库变化事件
   window.dispatchEvent(new CustomEvent('warehousesChanged'));
+  _showWarehouseNotice('仓库已删除');
 }
 
 // ============================================
 // 买入
 // ============================================
-function buy(id) {
+async function buy(id) {
   const gramsInput = document.getElementById(`buy-grams-${id}`);
   const priceInput = document.getElementById(`buy-price-${id}`);
 
@@ -651,49 +974,70 @@ function buy(id) {
   const price = parseFloat(priceInput?.value);
 
   if (!grams || grams <= 0) {
-    alert('请输入有效的克数');
+    _showWarehouseNotice('请输入有效的交易克数', 'error');
     return;
   }
 
   if (!price || price <= 0) {
-    alert('请输入有效的单价');
+    _showWarehouseNotice('请输入实际成交价格', 'error');
     return;
   }
 
   const warehouses = loadWarehouses();
   const warehouse = warehouses.find(w => w.id === id);
   if (!warehouse) {
-    alert('仓库不存在');
+    _showWarehouseNotice('仓库不存在', 'error');
+    return;
+  }
+
+  const amount = _roundMoney(grams * price);
+  if (!await _confirmWarehouseAction('', {
+    title: '确认买入',
+    confirmText: '确认',
+    details: [
+      { label: '买入数量', value: `${fmt(grams, 4)}g` },
+      { label: '成交价', value: `${fmtMoney(price)} ¥/g` },
+      { label: '成交金额', value: `¥${fmtMoney(amount)}` },
+    ],
+  })) {
     return;
   }
 
   // 更新仓库数据
   warehouse.totalGrams = (warehouse.totalGrams || 0) + grams;
-  warehouse.totalCost = (warehouse.totalCost || 0) + (grams * price);
+  warehouse.totalCost = _roundMoney((warehouse.totalCost || 0) + amount);
   warehouse.history = warehouse.history || [];
   warehouse.history.push({
     type: 'buy',
     grams,
     price,
-    timestamp: Date.now()
+    amount,
+    timestamp: Date.now(),
+    gramsAfter: warehouse.totalGrams,
+    costAfter: warehouse.totalCost,
   });
 
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
+  _historyVisibleCounts.set(id, 3);
 
   // 清空输入框
   if (gramsInput) gramsInput.value = '';
   if (priceInput) priceInput.value = '';
 
   // 重新渲染详情
-  renderWarehouseDetail(id);
+  renderWarehouseList();
+  window.dispatchEvent(new CustomEvent('warehousesChanged'));
 
-  alert('买入成功！');
+  _showWarehouseNotice(`已买入 ${fmt(grams, 4)}g，成交金额 ¥${fmt(amount, 2)}`);
 }
 
 // ============================================
 // 卖出
 // ============================================
-function sell(id) {
+async function sell(id) {
   // 买入和卖出共用同一组输入框
   const gramsInput = document.getElementById(`buy-grams-${id}`);
   const priceInput = document.getElementById(`buy-price-${id}`);
@@ -702,75 +1046,107 @@ function sell(id) {
   const price = parseFloat(priceInput?.value);
 
   if (!grams || grams <= 0) {
-    alert('请输入有效的克数');
+    _showWarehouseNotice('请输入有效的交易克数', 'error');
     return;
   }
 
   if (!price || price <= 0) {
-    alert('请输入有效的单价');
+    _showWarehouseNotice('请输入实际成交价格', 'error');
     return;
   }
 
   const warehouses = loadWarehouses();
   const warehouse = warehouses.find(w => w.id === id);
   if (!warehouse) {
-    alert('仓库不存在');
+    _showWarehouseNotice('仓库不存在', 'error');
     return;
   }
 
   if (grams > warehouse.totalGrams) {
-    alert('卖出克数不能超过持有总量');
+    _showWarehouseNotice('卖出克数不能超过当前持有总量', 'error');
     return;
   }
 
-  // 计算成本减少（按比例）
-  const costReduction = (warehouse.totalCost || 0) * (grams / warehouse.totalGrams);
+  // 工行口径：卖出回款直接冲减当前总成本。
+  const proceeds = _roundMoney(grams * price);
+  const sellingAll = Math.abs(grams - warehouse.totalGrams) < 1e-9;
+  if (!await _confirmWarehouseAction('', {
+    title: '确认卖出',
+    confirmText: '确认',
+    danger: true,
+    details: [
+      { label: '卖出数量', value: `${fmt(grams, 4)}g` },
+      { label: '成交价', value: `${fmtMoney(price)} ¥/g` },
+      { label: '成交金额', value: `¥${fmtMoney(proceeds)}` },
+    ],
+  })) {
+    return;
+  }
 
   // 更新仓库数据
   warehouse.totalGrams -= grams;
-  warehouse.totalCost = (warehouse.totalCost || 0) - costReduction;
+  warehouse.totalCost = _roundMoney((warehouse.totalCost || 0) - proceeds);
+  if (sellingAll || Math.abs(warehouse.totalGrams) < 1e-9) {
+    warehouse.totalGrams = 0;
+    warehouse.totalCost = 0;
+  }
   warehouse.history = warehouse.history || [];
   warehouse.history.push({
     type: 'sell',
     grams,
     price,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    proceeds,
+    gramsAfter: warehouse.totalGrams,
+    costAfter: warehouse.totalCost,
   });
 
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
+  _historyVisibleCounts.set(id, 3);
 
   // 清空输入框
   if (gramsInput) gramsInput.value = '';
   if (priceInput) priceInput.value = '';
 
   // 重新渲染详情
-  renderWarehouseDetail(id);
+  renderWarehouseList();
+  window.dispatchEvent(new CustomEvent('warehousesChanged'));
 
-  alert('卖出成功！');
+  _showWarehouseNotice(`已卖出 ${fmt(grams, 4)}g，成交金额 ¥${fmt(proceeds, 2)}`);
 }
 
 // ============================================
 // 调整成本
 // ============================================
-function adjustCost(id) {
+async function adjustCost(id) {
   const costInput = document.getElementById(`adjust-cost-${id}`);
   const newCost = parseFloat(costInput?.value);
 
   if (isNaN(newCost) || newCost < 0) {
-    alert('请输入有效的成本金额');
+    _showWarehouseNotice('请输入有效的成本金额', 'error');
     return;
   }
 
   const warehouses = loadWarehouses();
   const warehouse = warehouses.find(w => w.id === id);
   if (!warehouse) {
-    alert('仓库不存在');
+    _showWarehouseNotice('仓库不存在', 'error');
     return;
   }
 
   const oldCost = warehouse.totalCost || 0;
 
-  if (!confirm(`确定要将总成本从 ${fmt(oldCost, 2)}￥ 调整为 ${fmt(newCost, 2)}￥ 吗？`)) {
+  if (!await _confirmWarehouseAction('', {
+    title: '调整总成本',
+    confirmText: '应用调整',
+    details: [
+      { label: '调整前', value: `¥${fmtMoney(oldCost)}` },
+      { label: '调整后', value: `¥${fmtMoney(newCost)}` },
+    ],
+  })) {
     return;
   }
 
@@ -781,10 +1157,18 @@ function adjustCost(id) {
     type: 'adjust',
     oldCost,
     newCost,
+    oldGrams: warehouse.totalGrams,
+    newGrams: warehouse.totalGrams,
+    gramsAfter: warehouse.totalGrams,
+    costAfter: warehouse.totalCost,
     timestamp: Date.now()
   });
 
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
+  _historyVisibleCounts.set(id, 3);
 
   // 清空输入框
   if (costInput) costInput.value = '';
@@ -793,7 +1177,7 @@ function adjustCost(id) {
   renderWarehouseDetail(id);
   renderWarehouseList();
 
-  alert('成本调整成功！');
+  _showWarehouseNotice('总成本已更新');
   
   // 触发仓库变化事件
   window.dispatchEvent(new CustomEvent('warehousesChanged'));
@@ -802,7 +1186,7 @@ function adjustCost(id) {
 // ============================================
 // 直接调整仓位（数量+成本价）
 // ============================================
-function adjustPosition(id) {
+async function adjustPosition(id) {
   const warehouses = loadWarehouses();
   const warehouse = warehouses.find(w => w.id === id);
   if (!warehouse) return;
@@ -814,34 +1198,56 @@ function adjustPosition(id) {
   const newCostPrice = parseFloat(newCostPriceInput.value);
 
   if (isNaN(newGrams) || newGrams < 0) {
-    alert('请输入有效的持仓数量');
+    _showWarehouseNotice('请输入有效的持仓数量', 'error');
     return;
   }
 
   if (isNaN(newCostPrice) || newCostPrice < 0) {
-    alert('请输入有效的成本价');
+    _showWarehouseNotice('请输入有效的成本价', 'error');
     return;
   }
 
   const oldGrams = warehouse.totalGrams;
   const oldCost = warehouse.totalCost || 0;
+  const newTotalCost = _roundMoney(newGrams * newCostPrice);
+  if (!await _confirmWarehouseAction('', {
+    title: '确认调整仓位',
+    confirmText: '确认',
+    details: [
+      { label: '持仓数量', value: `${fmt(newGrams, 4)}g` },
+      { label: '成本价', value: `${fmtMoney(newCostPrice)} ¥/g` },
+      { label: '总成本', value: `¥${fmtMoney(newTotalCost)}` },
+    ],
+  })) {
+    return;
+  }
   
   warehouse.totalGrams = newGrams;
-  warehouse.totalCost = newGrams * newCostPrice;
+  warehouse.totalCost = newTotalCost;
   
   warehouse.history = warehouse.history || [];
   warehouse.history.push({
     type: 'adjust',
     timestamp: Date.now(),
-    oldCost: oldGrams,
-    newCost: newGrams,
+    oldGrams,
+    newGrams,
+    oldCost,
+    newCost: warehouse.totalCost,
+    oldCostPrice: oldGrams > 0 ? oldCost / oldGrams : 0,
+    newCostPrice,
+    gramsAfter: warehouse.totalGrams,
+    costAfter: warehouse.totalCost,
   });
 
-  saveWarehouses(warehouses);
+  if (!saveWarehouses(warehouses)) {
+    _showWarehouseNotice('保存失败，请稍后重试', 'error');
+    return;
+  }
+  _historyVisibleCounts.set(id, 3);
   renderWarehouseDetail(id);
   renderWarehouseList();
   
-  alert('仓位调整成功');
+  _showWarehouseNotice('仓位与成本价已更新');
   
   // 触发仓库变化事件
   window.dispatchEvent(new CustomEvent('warehousesChanged'));
@@ -859,32 +1265,32 @@ function updateWarehouseRealTimeData() {
 
   // 获取最新价格
   const priceObj = PRICES.find(p => p.code === warehouse.refPrice);
-  const currentPrice = priceObj?.value || 0;
+  const currentPrice = Number(priceObj?.value);
+  const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
   const currency = getCurrency(warehouse.refPrice);
 
   // 计算盈亏
-  const totalCost = warehouse.totalCost || 0;
-  const currentValue = warehouse.totalGrams * currentPrice;
-  const pnl = currentValue - totalCost;
-  const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+  const metrics = _getCostMetrics(warehouse, currentPrice);
+  const { currentValue, totalPnl: pnl } = metrics;
+  const pnlPct = metrics.holdingCost > 0 ? (pnl / metrics.holdingCost) * 100 : 0;
 
   // 更新DOM中的动态数据
   const priceEl = document.getElementById(`warehouse-current-price-${currentWarehouseId}`);
   const pnlEl = document.getElementById(`warehouse-pnl-${currentWarehouseId}`);
   const valueEl = document.getElementById(`warehouse-value-${currentWarehouseId}`);
-  const heroPriceEl = document.getElementById(`warehouse-hero-price-${currentWarehouseId}`);
-  const heroPnlPctEl = document.getElementById(`warehouse-hero-pnl-pct-${currentWarehouseId}`);
+  const pnlPctEl = document.getElementById(`warehouse-pnl-pct-${currentWarehouseId}`);
+
+  if (!hasLivePrice) {
+    [priceEl, pnlEl, valueEl, pnlPctEl].forEach((element) => {
+      if (!element) return;
+      element.innerHTML = _numberLoadingDotsMarkup();
+      element.closest('.status-item')?.classList.remove('positive', 'negative');
+    });
+    return;
+  }
 
   if (priceEl) {
-    priceEl.textContent = `${fmt(currentPrice, 2)} ${currency}/g`;
-  }
-
-  if (heroPriceEl) {
-    heroPriceEl.textContent = `当前价格：${fmt(currentPrice, 2)} ${currency}/g`;
-  }
-
-  if (heroPnlPctEl) {
-    heroPnlPctEl.textContent = `收益率：${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%`;
+    priceEl.textContent = `${fmtMoney(currentPrice)} ${currency}/g`;
   }
 
   if (pnlEl) {
@@ -900,24 +1306,13 @@ function updateWarehouseRealTimeData() {
     valueEl.textContent = `${fmt(currentValue, 2)} ¥`;
   }
 
-  // 更新输入框中的参考价格提示
-  const buyPriceInput = document.getElementById(`buy-price-${currentWarehouseId}`);
-  const priceHint = document.querySelector('.price-hint');
-  if (buyPriceInput) {
-    const nextAutoPrice = fmt(currentPrice, 2);
-    const previousAutoPrice = buyPriceInput.dataset.autoPrice || '';
-    const shouldRefreshAutoValue =
-      !buyPriceInput.value ||
-      buyPriceInput.value === previousAutoPrice ||
-      (!previousAutoPrice && buyPriceInput.value === '0' && currentPrice > 0);
-    buyPriceInput.placeholder = `当前: ${nextAutoPrice}`;
-    if (shouldRefreshAutoValue) {
-      buyPriceInput.value = nextAutoPrice;
+  if (pnlPctEl) {
+    pnlPctEl.textContent = `${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%`;
+    const statusItem = pnlPctEl.closest('.status-item');
+    if (statusItem) {
+      statusItem.classList.remove('positive', 'negative');
+      statusItem.classList.add(pnl >= 0 ? 'positive' : 'negative');
     }
-    buyPriceInput.dataset.autoPrice = nextAutoPrice;
-  }
-  if (priceHint) {
-    priceHint.textContent = `当前参考价格: ${fmt(currentPrice, 2)} ¥`;
   }
 }
 
@@ -930,15 +1325,17 @@ function updateWarehouseListRealTimeData() {
     if (!itemEl) return;
 
     const priceObj = PRICES.find((p) => p.code === warehouse.refPrice);
-    const currentPrice = priceObj?.value || 0;
-    const currentValue = (warehouse.totalGrams || 0) * currentPrice;
-    const pnl = currentValue - (warehouse.totalCost || 0);
+    const currentPrice = Number(priceObj?.value);
+    const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
+    const pnl = _getCostMetrics(warehouse, currentPrice).totalPnl;
 
     const metricsEl = itemEl.querySelector('.warehouse-item-metrics');
     if (metricsEl) {
       metricsEl.innerHTML = `
         <span>${fmt(warehouse.totalGrams, 2)}g</span>
-        <span class="${pnl >= 0 ? 'metric-profit' : 'metric-loss'}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥</span>
+        ${hasLivePrice
+          ? `<span class="${pnl >= 0 ? 'metric-profit' : 'metric-loss'}">${pnl >= 0 ? '+' : ''}${fmt(pnl, 2)}¥</span>`
+          : _numberLoadingDotsMarkup()}
       `;
     }
   });
@@ -1019,6 +1416,10 @@ function bindWarehouseInteractions() {
         case 'adjust-position':
           adjustPosition(id);
           break;
+        case 'show-more-history':
+          _historyVisibleCounts.set(id, (_historyVisibleCounts.get(id) || 3) + 5);
+          renderWarehouseDetail(id);
+          break;
         case 'create-warehouse':
           createWarehouse();
           break;
@@ -1064,6 +1465,7 @@ const warehouseModule = {
   refreshWarehouseView,
   bindWarehouseInteractions,
   setWarehouseCallbacks,
+  resetHistoryPagination,
 };
 
 export {

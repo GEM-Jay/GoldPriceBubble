@@ -1520,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "goldprice"
-version = "2.3.11"
+version = "2.3.16"
 dependencies = [
  "auto-launch",
  "cc",

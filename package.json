@@ -1,6 +1,6 @@
 {
   "name": "goldprice-tauri",
-  "version": "2.3.11",
+  "version": "2.3.16",
   "description": "Gold price desktop client (Tauri)",
   "scripts": {
     "frontend:dev": "vite --host 127.0.0.1 --port 5173",

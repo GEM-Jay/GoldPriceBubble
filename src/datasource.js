@@ -1,6 +1,5 @@
 import { SERVER_URL, normalizeServerUrl, once } from './runtime.js';
 
-const PRICES_KEY = 'cachedPrices';
 const MAX_PRICE_ITEMS = 64;
 const FIELD_MAP_TTL_MS = 10 * 60 * 1000;
 const FIELD_MAP_TIMEOUT_MS = 4000;
@@ -13,6 +12,7 @@ let _serverUrl = '';
 let _codeToName = {};
 let _codeToCurrency = {};
 let _baseItems = [];
+let _fieldMapBySourceKey = {};
 let _fieldMapFetchPromise = null;
 let _fieldMapFetchedAt = 0;
 let _httpFetch = null;
@@ -54,12 +54,11 @@ function _appendCacheBust(url) {
 }
 
 function _getFieldMapSnapshot() {
-  if (!_baseItems.length) return null;
-  const map = {};
-  _baseItems.forEach((item) => {
-    map[item.code] = { code: item.code, name: item.name, currency: item.currency };
-  });
-  return Object.keys(map).length ? map : null;
+  return Object.keys(_fieldMapBySourceKey).length
+    ? Object.fromEntries(
+      Object.entries(_fieldMapBySourceKey).map(([key, def]) => [key, { ...def }]),
+    )
+    : null;
 }
 
 function _getApiBaseUrl() {
@@ -75,12 +74,14 @@ function _applyFieldMap(map) {
   _codeToName = {};
   _codeToCurrency = {};
   _baseItems = [];
+  _fieldMapBySourceKey = {};
   for (const [key, def] of Object.entries(map)) {
     const code = def.code || key;
     const name = def.name || key;
     const currency = def.currency || '¥';
     _codeToName[code] = name;
     _codeToCurrency[code] = currency;
+    _fieldMapBySourceKey[key] = { code, name, currency };
     _baseItems.push({ code, name, currency });
   }
 }
@@ -138,10 +139,11 @@ async function ensureFieldMap(options = {}) {
 async function init(httpFetch, serverUrl) {
   _httpFetch = httpFetch || null;
   _serverUrl = serverUrl;
-  _latestPrices = _readCachedPrices();
+  _latestPrices = [];
+  try { localStorage.removeItem('cachedPrices'); } catch (_) {}
   await _log('info', 'datasource_module_initialized', 'datasource module initialized', {
     serverUrl: _normalizeApiBaseUrl(serverUrl),
-    cachedPricesCount: _latestPrices.length,
+    cachedPricesCount: 0,
   });
   try {
     await ensureFieldMap();
@@ -213,23 +215,8 @@ function _compactPrices(prices) {
   return Array.from(map.values()).slice(0, MAX_PRICE_ITEMS);
 }
 
-function _readCachedPrices() {
-  try {
-    const raw = localStorage.getItem(PRICES_KEY);
-    if (!raw) return [];
-    return _compactPrices(JSON.parse(raw));
-  } catch (_) {
-    return [];
-  }
-}
-
 function savePrices(prices) {
   _latestPrices = _compactPrices(prices);
-  try {
-    if (_latestPrices.length > 0) {
-      localStorage.setItem(PRICES_KEY, JSON.stringify(_latestPrices));
-    }
-  } catch (_) {}
 }
 
 function loadPrices() {

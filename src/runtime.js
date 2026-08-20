@@ -88,6 +88,33 @@ function getTicketApiBase() {
   return String(TICKET_SERVER_URL || '').trim().replace(/\/+$/, '');
 }
 
+async function setPriceDisplayMode(mode) {
+  const invoke = getTauriApis().invoke;
+  if (!invoke) throw new Error('Tauri invoke is unavailable');
+  return invoke('set_price_display_mode', { mode });
+}
+
+async function updateTaskbarDisplay(payload) {
+  const invoke = getTauriApis().invoke;
+  if (!invoke) return;
+  return invoke('update_taskbar_display', { payload });
+}
+
+async function getTaskbarDisplayStatus() {
+  const invoke = getTauriApis().invoke;
+  if (!invoke) {
+    return {
+      supported: false,
+      requestedMode: 'bubble',
+      actualDisplay: 'bubble',
+      attached: false,
+      fallbackReason: 'unsupported_os',
+      userVisible: false,
+    };
+  }
+  return invoke('get_taskbar_display_status');
+}
+
 export {
   SERVER_URL,
   TICKET_SERVER_URL,
@@ -96,8 +123,11 @@ export {
   getClientRuntimeSummary,
   getTauri,
   getTauriApis,
+  getTaskbarDisplayStatus,
   getTicketApiBase,
   normalizeServerUrl,
   once,
+  setPriceDisplayMode,
+  updateTaskbarDisplay,
   waitForTauri,
 };

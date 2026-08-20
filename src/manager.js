@@ -9,8 +9,11 @@ import {
   TICKET_SERVER_URL,
   appendClientLog,
   getClientRuntimeSummary,
+  getTaskbarDisplayStatus,
   getTauriApis,
   normalizeServerUrl,
+  setPriceDisplayMode,
+  updateTaskbarDisplay,
   waitForTauri,
 } from './runtime.js';
 import warehouseModule, { bindWarehouseInteractions } from './warehouse.js';
@@ -34,6 +37,10 @@ let _sseQueuedPayload = null;
 let _ssePendingChunk = '';
 let _sseMessageRing = [];
 let _sseLatestSnapshot = null;
+let _sseLastActivityAt = 0;
+let _sseLastHealthCheckAt = Date.now();
+const _livePricesByCode = new Map();
+let _sseLatestRawPayload = '';
 let _activeUpdateInstallInFlight = false;
 let _updaterEventUnlisten = null;
 const _noopInvoke = async () => null;
@@ -44,6 +51,9 @@ const SSE_MAX_MESSAGE_CHARS = 8 * 1024;
 const SSE_MAX_MESSAGES_PER_SECOND = 20;
 const SSE_FIRST_PAYLOAD_TIMEOUT_MS = 8000;
 const SSE_RECONNECT_DELAY_MS = 3000;
+const SSE_STALE_AFTER_MS = 15000;
+const SSE_SUSPEND_GAP_MS = 12000;
+const SSE_HEALTH_CHECK_INTERVAL_MS = 5000;
 const UPDATE_SOURCES_COOLDOWN_MS = 1200;
 const _streamMetrics = {
   recentMessages: 0,
@@ -98,6 +108,16 @@ function cleanupManagedResources() {
   _managedTimeouts.clear();
   _disconnectSSE();
   try { dataSource.dispose(); } catch (_) {}
+  _ticketRequestControllers.forEach((controller) => {
+    try { controller.abort(); } catch (_) {}
+  });
+  _ticketRequestControllers.clear();
+  _ticketImages.forEach((item) => {
+    if (item?.previewUrl) {
+      try { URL.revokeObjectURL(item.previewUrl); } catch (_) {}
+    }
+  });
+  _ticketImages = [];
   while (_cleanupFns.length) {
     const fn = _cleanupFns.pop();
     try { fn(); } catch (_) {}
@@ -184,11 +204,16 @@ const state = {
   refreshInterval: 5000,
   serverUrl: SERVER_URL,
   autoStart: false,
+  priceDisplayMode: 'bubble',
+  taskbarHideLabels: false,
+  taskbarPlacement: 'right',
 };
 
 let _clientIdentity = null;
 let _ticketImages = [];
 let _ticketItems = [];
+let _ticketRefreshPromise = null;
+const _ticketRequestControllers = new Set();
 let _ticketHistoryOpen = false;
 let _ticketTargetId = null;
 let _ticketUnreadCount = 0;
@@ -200,6 +225,8 @@ let _updatePromptShownOnStartupVersion = '';
 const _managerLogFlags = Object.create(null);
 let _lastManagerConfigNotifySignature = '';
 let _connectionOnline = false;
+let _taskbarStatus = null;
+const _taskbarPreviousPrices = new Map();
 let _managerBootstrapStarted = false;
 
 function _ticketApiBase() {
@@ -251,6 +278,9 @@ function _getLatestSnapshotSummary() {
     snapshotAgeMs: _sseLatestSnapshot ? Math.max(0, Date.now() - _sseLatestSnapshot.ts) : null,
     snapshotPricesCount: Array.isArray(_sseLatestSnapshot?.prices) ? _sseLatestSnapshot.prices.length : 0,
     recentMessages: _streamMetrics.recentMessages,
+    streamActivityAgeMs: _sseLastActivityAt
+      ? Math.max(0, Date.now() - _sseLastActivityAt)
+      : null,
   };
 }
 
@@ -280,6 +310,7 @@ function _setConnectionOnline(online, reason = '') {
       ts: Date.now(),
     });
   } catch (_) {}
+  _updateTaskbarPayload();
 }
 
 function _getManagerDataSummary() {
@@ -379,7 +410,7 @@ function updateWarehouseSummaryDisplay() {
   if (pnlSummaryEl) {
     const pnlClass = summary.totalPnl >= 0 ? 'positive' : 'negative';
     pnlSummaryEl.innerHTML = `
-      <span class="summary-inline-item">总仓营收: <span class="summary-inline-value ${pnlClass}">${summary.totalPnl >= 0 ? '+' : ''}${fmt(summary.totalPnl, 2)}¥</span></span>
+      <span class="summary-inline-item">总仓盈亏: <span class="summary-inline-value ${pnlClass}">${summary.totalPnl >= 0 ? '+' : ''}${fmt(summary.totalPnl, 2)}¥</span></span>
       <span class="summary-inline-divider">|</span>
       <span class="summary-inline-item">总仓克重: <span class="summary-inline-value">${fmt(summary.totalGrams, 2)}g</span></span>
       <span class="summary-inline-divider">|</span>
@@ -428,6 +459,11 @@ function loadState() {
     state.bubbleOpacity = parseInt(localStorage.getItem('bubbleOpacity') || '100');
     state.showPnl = localStorage.getItem('showPnl') === 'true';
     state.selectedPnlWarehouses = JSON.parse(localStorage.getItem('pnl_selected_warehouses') || '[]');
+    state.priceDisplayMode = import.meta.env.DEV
+      ? 'bubble'
+      : (localStorage.getItem('priceDisplayMode') === 'taskbar' ? 'taskbar' : 'bubble');
+    state.taskbarHideLabels = localStorage.getItem('taskbarHideLabels') === 'true';
+    state.taskbarPlacement = localStorage.getItem('taskbarPlacement') === 'left' ? 'left' : 'right';
     state.serverUrl = normalizeServerUrl(SERVER_URL);
     localStorage.setItem('serverUrl', state.serverUrl);
     localStorage.setItem('bubbleThemeColor', state.bubbleThemeColor);
@@ -452,6 +488,9 @@ async function saveState() {
     localStorage.setItem('pnl_selected_warehouses', JSON.stringify(state.selectedPnlWarehouses));
     localStorage.setItem('serverUrl', state.serverUrl);
     localStorage.setItem('autoStart', state.autoStart.toString());
+    localStorage.setItem('priceDisplayMode', state.priceDisplayMode);
+    localStorage.setItem('taskbarHideLabels', state.taskbarHideLabels.toString());
+    localStorage.setItem('taskbarPlacement', state.taskbarPlacement);
 
     // 通知气泡窗口更新 (Tauri)
     try {
@@ -470,6 +509,7 @@ async function saveState() {
       await invoke('notify_bubble', { message: 'config-update' });
     } catch (_) {
     }
+    _updateTaskbarPayload();
   } catch (_) {
   }
 }
@@ -537,16 +577,7 @@ function _normalizeSelectedCodes() {
   return changed;
 }
 
-// 本地兜底 field map，启动时会被服务端数据覆盖
-let SSE_FIELD_MAP = {
-  'comex':   { code: 'hf_GC',              name: '纽约金',    currency: '$' },
-  'lbma':    { code: 'hf_XAU',             name: '伦敦金',    currency: '$' },
-  'autd':    { code: 'gds_AUTD',           name: '黄金延期',  currency: '¥' },
-  'lbma_jd': { code: 'WG-XAUUSD',         name: '伦敦金JD',  currency: '$' },
-  'sge':     { code: 'SGE-Au',             name: '上海金',    currency: '¥' },
-  'cnh':     { code: 'FX-USDCNH',          name: '离岸人民币', currency: '¥' },
-  'xag':     { code: 'hf_XAG',             name: '伦敦银',    currency: '$' },
-};
+let SSE_FIELD_MAP = {};
 
 let _sseSchema = [];
 
@@ -588,6 +619,71 @@ function _broadcastPricesSnapshot(prices, rawMessage) {
       });
     }
   } catch (_) {}
+  _updateTaskbarPayload();
+}
+
+function _buildTaskbarDisplayItems() {
+  const pricesByCode = new Map(state.prices.map(price => [price.code, price]));
+  const items = state.selectedCodes
+    .map(code => pricesByCode.get(code))
+    .filter(Boolean)
+    .map((price) => {
+      const value = Number(price.value);
+      const previous = _taskbarPreviousPrices.get(price.code);
+      let tone = 'neutral';
+      if (Number.isFinite(previous) && Number.isFinite(value) && previous !== value) {
+        tone = value > previous ? 'up' : 'down';
+      }
+      if (Number.isFinite(value)) _taskbarPreviousPrices.set(price.code, value);
+      return {
+        id: price.code,
+        kind: 'price',
+        label: getDisplayName(price.code, price.name),
+        value: `${fmt(value, 2)} ${getCurrency(price.code)}`,
+        tone,
+      };
+    });
+
+  if (!state.showPnl || state.selectedPnlWarehouses.length === 0) return items;
+  const warehouses = loadWarehouses();
+  const pnlItems = [];
+  if (state.selectedPnlWarehouses.includes('__total__')) {
+    let totalPnl = 0;
+    warehouses.forEach((warehouse) => {
+      const price = pricesByCode.get(warehouse.refPrice);
+      if (getCurrency(warehouse.refPrice) !== '￥' && getCurrency(warehouse.refPrice) !== '¥') return;
+      totalPnl += (warehouse.totalGrams || 0) * (Number(price?.value) || 0) - (warehouse.totalCost || 0);
+    });
+    pnlItems.push({ id: '__total__', label: '总仓盈亏', pnl: totalPnl });
+  }
+  state.selectedPnlWarehouses.forEach((id) => {
+    if (id === '__total__') return;
+    const warehouse = warehouses.find(item => item.id === id);
+    if (!warehouse) return;
+    const price = pricesByCode.get(warehouse.refPrice);
+    const pnl = (warehouse.totalGrams || 0) * (Number(price?.value) || 0) - (warehouse.totalCost || 0);
+    pnlItems.push({ id, label: warehouse.name, pnl });
+  });
+  pnlItems.forEach((item) => {
+    items.push({
+      id: `pnl:${item.id}`,
+      kind: 'pnl',
+      label: item.label,
+      value: `${item.pnl >= 0 ? '+' : ''}${fmt(item.pnl, 2)} ￥`,
+      tone: item.pnl >= 0 ? 'positive' : 'negative',
+    });
+  });
+  return items;
+}
+
+function _updateTaskbarPayload() {
+  updateTaskbarDisplay({
+    ts: Date.now(),
+    online: _connectionOnline,
+    items: _buildTaskbarDisplayItems(),
+    hideLabels: state.taskbarHideLabels,
+    placement: state.taskbarPlacement,
+  }).catch(() => {});
 }
 
 function _isExpectedAbortError(error) {
@@ -598,21 +694,26 @@ function _isExpectedAbortError(error) {
 function _processPriceSnapshot(prices, rawMessage) {
   if (!prices || prices.length === 0) return;
   clearManagedTimeout('manager-sse-first-payload-watchdog');
-  state.prices = prices;
-  dataSource.savePrices(prices);
+  prices.forEach(price => _livePricesByCode.set(price.code, price));
+  const sourceOrder = new Map(dataSource.getAllItems().map((item, index) => [item.code, index]));
+  state.prices = Array.from(_livePricesByCode.values()).sort((a, b) => {
+    return (sourceOrder.get(a.code) ?? Number.MAX_SAFE_INTEGER)
+      - (sourceOrder.get(b.code) ?? Number.MAX_SAFE_INTEGER);
+  });
+  dataSource.savePrices(state.prices);
   if (localStorage.getItem('selectedCodes') === null && state.selectedCodes.length === 0) {
     state.selectedCodes = prices.slice(0, 2).map(p => p.code);
     saveState();
   }
-  updatePriceValues(prices);
-  _updateTodayCandle(prices);
+  updatePriceValues(state.prices);
+  _updateTodayCandle(state.prices);
   if (warehouseModule) {
-    warehouseModule.updatePrices(prices);
+    warehouseModule.updatePrices(state.prices);
     if (warehouseModule.updateWarehouseRealTimeData) {
       warehouseModule.updateWarehouseRealTimeData();
     }
   }
-  _broadcastPricesSnapshot(prices, rawMessage);
+  _broadcastPricesSnapshot(state.prices, rawMessage);
   _setConnectionOnline(true, 'snapshot_received');
   updatePnlSummary();
   renderPreview();
@@ -639,6 +740,7 @@ function _processQueuedSsePayload() {
 function _enqueueSsePayload(payload) {
   if (!payload || payload.length > SSE_MAX_MESSAGE_CHARS) return;
   _streamMetrics.lastMessageSize = payload.length;
+  _sseLatestRawPayload = payload;
   const now = Date.now();
   if (!_streamMetrics.windowStartedAt || now - _streamMetrics.windowStartedAt >= 1000) {
     _streamMetrics.windowStartedAt = now;
@@ -668,6 +770,7 @@ async function _consumeSseResponse(response) {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      _sseLastActivityAt = Date.now();
       _ssePendingChunk += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
       if (_ssePendingChunk.length > SSE_MAX_PENDING_CHARS) {
         throw new Error('SSE pending chunk overflow');
@@ -714,6 +817,9 @@ async function _fetchFieldMap(options = {}) {
     if (Object.keys(map).length > 0) {
       SSE_FIELD_MAP = map;
       dataSource.updateFromFieldMap(map);
+      if (_sseLatestRawPayload && _sseSchema.length > 0) {
+        _enqueueSsePayload(_sseLatestRawPayload);
+      }
     }
   } catch (_) {}
 }
@@ -722,11 +828,20 @@ async function _fetchFieldMap(options = {}) {
 function _buildPricesFromSSE(dataStr) {
   const vals = dataStr.split(',').map(Number);
   const prices = [];
+  let mappedFields = 0;
   _sseSchema.forEach((fieldName, i) => {
     const def = SSE_FIELD_MAP[fieldName];
-    if (!def || isNaN(vals[i]) || vals[i] <= 0) return;
+    if (!def) return;
+    mappedFields += 1;
+    if (!Number.isFinite(vals[i]) || vals[i] <= 0) return;
     prices.push({ code: def.code, name: def.name, value: vals[i], currency: def.currency });
   });
+  if (_sseSchema.length > 0 && mappedFields === 0 && _markManagerLogFlag('sse_schema_unmapped')) {
+    appLog('error', 'manager', 'sse_schema_unmapped', 'SSE schema did not match field map', {
+      schemaSample: _sseSchema.slice(0, 6),
+      fieldMapKeys: Object.keys(SSE_FIELD_MAP).slice(0, 6),
+    });
+  }
   const ny = prices.find(p => p.code === 'hf_GC');
   const lon = prices.find(p => p.code === 'hf_XAU');
   if (ny && lon) {
@@ -744,10 +859,12 @@ function _connectSSE() {
   if (!sseBaseUrl) return;
   _sseAbortController = new AbortController();
   const controller = _sseAbortController;
+  const connectionStartedAt = Date.now();
+  _sseLastActivityAt = connectionStartedAt;
   _streamMetrics.hasActiveReader = false;
   setManagedTimeout('manager-sse-first-payload-watchdog', () => {
     if (_isPageUnloading || controller.signal.aborted) return;
-    if (_sseLatestSnapshot && Date.now() - _sseLatestSnapshot.ts < SSE_FIRST_PAYLOAD_TIMEOUT_MS) return;
+    if (_sseLatestSnapshot?.ts >= connectionStartedAt) return;
     appLog('warn', 'manager', 'sse_first_payload_timeout', 'sse first payload timed out', {
       timeoutMs: SSE_FIRST_PAYLOAD_TIMEOUT_MS,
       ..._getManagerDataSummary(),
@@ -804,6 +921,36 @@ function _connectSSE() {
         _connectSSE();
       }, SSE_RECONNECT_DELAY_MS);
     });
+}
+
+function _restartSseConnection(reason) {
+  if (_isPageUnloading) return;
+  appLog('warn', 'manager', 'sse_connection_restarted', 'sse connection restarted', {
+    reason,
+    ..._getManagerDataSummary(),
+  });
+  _setConnectionOnline(false, reason);
+  _disconnectSSE();
+  _connectSSE();
+}
+
+function _checkSseHealth(trigger = 'interval') {
+  if (_isPageUnloading) return;
+  const now = Date.now();
+  const checkGapMs = Math.max(0, now - _sseLastHealthCheckAt);
+  _sseLastHealthCheckAt = now;
+
+  if (!_sseAbortController) {
+    if (!_sseReconnectPending) _connectSSE();
+    return;
+  }
+
+  const activityAgeMs = _sseLastActivityAt ? now - _sseLastActivityAt : Number.POSITIVE_INFINITY;
+  if (checkGapMs >= SSE_SUSPEND_GAP_MS) {
+    _restartSseConnection(`resume_detected:${trigger}`);
+  } else if (activityAgeMs >= SSE_STALE_AFTER_MS) {
+    _restartSseConnection(`stream_stale:${trigger}`);
+  }
 }
 
 function _disconnectSSE() {
@@ -916,6 +1063,7 @@ function switchView(viewId) {
   const fullViewId = viewId.startsWith('view-') ? viewId : `view-${viewId}`;
   const wasChartActive = !!document.getElementById('view-chart')?.classList.contains('active');
   const wasSettingsActive = !!document.getElementById('view-settings')?.classList.contains('active');
+  const wasStoreActive = !!document.getElementById('view-store')?.classList.contains('active');
   
   // 隐藏所有视图
   document.querySelectorAll('.view').forEach(view => {
@@ -959,6 +1107,8 @@ function switchView(viewId) {
 
   if (fullViewId === 'view-store' || viewId === 'store') {
     refreshWarehouseViewFromLatestPrices();
+  } else if (wasStoreActive) {
+    warehouseModule?.resetHistoryPagination?.();
   }
 
   if (fullViewId === 'view-settings' || viewId === 'settings') {
@@ -979,26 +1129,31 @@ function renderPriceListLoading() {
   const container = document.getElementById('price-select-list');
   if (!container) return;
   container.innerHTML = `
-    <div class="price-list-loading">
+    <div class="price-list-loading" role="status" aria-label="行情加载中">
       <span class="price-list-loading-dot"></span>
       <span class="price-list-loading-dot"></span>
       <span class="price-list-loading-dot"></span>
-      <span style="margin-left:10px;font-size:13px;color:var(--text-secondary);">数据抓取中，过程可能需要几秒钟…</span>
     </div>`;
 }
 
 function renderPriceListPlaceholders() {
   const container = document.getElementById('price-select-list');
-  if (!container || state.prices.length > 0 || !dataSource.hasSources()) return;
+  if (!container || !dataSource.hasSources()) return;
   const items = dataSource.getAllItems();
   if (!items.length) return;
   if (localStorage.getItem('selectedCodes') === null && state.selectedCodes.length === 0) {
     state.selectedCodes = dataSource.getFirstKeys(2);
     saveState();
   }
-  container.innerHTML = '';
+  container.querySelector('.price-list-loading')?.remove();
+  const existingCards = new Set(
+    Array.from(container.querySelectorAll('.price-card')).map(card => card.dataset.code),
+  );
+  const livePrices = new Map(state.prices.map(price => [price.code, price]));
   items.forEach(item => {
-    container.appendChild(_createPriceCardEl({
+    if (existingCards.has(item.code)) return;
+    const livePrice = livePrices.get(item.code);
+    container.appendChild(_createPriceCardEl(livePrice || {
       code: item.code,
       name: item.name,
       value: NaN,
@@ -1006,7 +1161,16 @@ function renderPriceListPlaceholders() {
       pending: true,
     }));
   });
+  _sortPriceCards();
   updatePriceSelectionUI();
+}
+
+function _numberLoadingDotsMarkup(label = '行情加载中') {
+  return `<span class="number-loading-dots" role="status" aria-label="${label}">
+    <span class="number-loading-dot"></span>
+    <span class="number-loading-dot"></span>
+    <span class="number-loading-dot"></span>
+  </span>`;
 }
 
 // 创建单张价格卡片 DOM 元素
@@ -1027,7 +1191,7 @@ function _createPriceCardEl(price) {
     <label for="price-${price.code}" class="price-card-label">
       <div class="price-card-left"><div class="price-card-name">${displayName}</div></div>
       <div class="price-card-right">
-        <div class="price-card-value${price.pending ? ' price-card-value-pending' : ''}" data-code="${price.code}">${price.pending ? '等待行情' : value}</div>
+        <div class="price-card-value${price.pending ? ' price-card-value-pending' : ''}" data-code="${price.code}">${price.pending ? _numberLoadingDotsMarkup() : value}</div>
         <div class="price-card-currency">${currency}</div>
       </div>
     </label>`;
@@ -1054,6 +1218,16 @@ function _sortPriceCards() {
     cardMap.set(card.dataset.code, card);
   });
 
+  const selectableCodes = new Set(dataSource.getAllItems().map(item => item.code));
+  if (selectableCodes.size > 0) {
+    cardMap.forEach((card, code) => {
+      if (!selectableCodes.has(code) && !code.startsWith('CALC_')) {
+        card.remove();
+        cardMap.delete(code);
+      }
+    });
+  }
+
   // 按数据源定义顺序依次 appendChild（移动到末尾），最终顺序与数据源一致
   const orderedCodes = dataSource.getAllItems().map(item => item.code);
   for (const code of orderedCodes) {
@@ -1063,7 +1237,7 @@ function _sortPriceCards() {
 }
 
 // ── 今日 K 线合成 ──────────────────────────────────────
-const TODAY_CODE = { usd: 'hf_XAU', cny: 'SGE-Au' };
+const TODAY_CODE = { usd: 'hf_XAU', cny: 'gds_AUTD' };
 
 function _todayStr() {
   const d = new Date();
@@ -1095,13 +1269,6 @@ function updatePriceValues(prices) {
   const cardMap = new Map();
   container.querySelectorAll('.price-card').forEach(card => {
     cardMap.set(card.dataset.code, card);
-  });
-
-  const incomingCodes = new Set(prices.map(p => p.code));
-
-  // 移除已不在数据源里的卡片
-  cardMap.forEach((card, code) => {
-    if (!incomingCodes.has(code)) card.remove();
   });
 
   prices.forEach(price => {
@@ -1221,7 +1388,7 @@ function renderWarehousePnlList() {
   if (!container) return;
 
   const warehouses = loadWarehouses();
-  const items = [{ id: '__total__', name: '总仓营收' }, ...warehouses.map(w => ({ id: w.id, name: w.name }))];
+  const items = [{ id: '__total__', name: '总仓盈亏' }, ...warehouses.map(w => ({ id: w.id, name: w.name }))];
   const selectedCount = state.selectedPnlWarehouses.length;
 
   container.innerHTML = `
@@ -1613,38 +1780,52 @@ async function _ticketFetch(path, options = {}) {
   const base = _ticketApiBase();
   if (!base) throw new Error('未配置工单服务地址');
   const url = `${base}${path}`;
+  const request = _trackTicketRequest(15000);
   const init = {
     method: options.method || 'GET',
     cache: 'no-store',
     headers: options.headers || {},
-    body: options.body
+    body: options.body,
+    signal: request.controller.signal,
   };
-  const resp = await fetch(url, init);
-  const json = await resp.json().catch(() => ({ s: 'error', m: '工单服务返回异常' }));
-  if (!resp.ok || json.s !== 'ok') throw new Error(json.m || '工单请求失败');
-  return json.d;
+  try {
+    const resp = await fetch(url, init);
+    const json = await resp.json().catch(() => ({ s: 'error', m: '工单服务返回异常' }));
+    if (!resp.ok || json.s !== 'ok') throw new Error(json.m || '工单请求失败');
+    return json.d;
+  } finally {
+    request.release();
+  }
 }
 
 async function _refreshTicketList() {
-  _lastTicketRefreshAt = Date.now();
-  const identity = await _syncClientIdentity();
-  if (!identity?.install_id) return;
+  if (_ticketRefreshPromise) return _ticketRefreshPromise;
+  _ticketRefreshPromise = (async () => {
+    _lastTicketRefreshAt = Date.now();
+    const identity = await _syncClientIdentity();
+    if (!identity?.install_id) return;
+    try {
+      const tickets = await _ticketFetch(`/api/client/tickets?install_id=${encodeURIComponent(identity.install_id)}`);
+      _ticketItems = await Promise.all((tickets || []).map(async (item) => {
+        try {
+          const messages = await _ticketFetch(`/api/client/tickets/${item.id}/messages?install_id=${encodeURIComponent(identity.install_id)}`);
+          return { ...item, messages: messages || [] };
+        } catch (_) {
+          return { ...item, messages: [] };
+        }
+      }));
+      if (!_ticketTargetId) _ticketTargetId = _getLatestUnreadTicketId();
+      _renderTicketList();
+      _refreshTicketReplyDot();
+      _ticketUnreadPollInitialized = true;
+    } catch (err) {
+      _setTicketSubmitMessage(err.message || '工单列表刷新失败', true);
+    }
+  })();
   try {
-    const tickets = await _ticketFetch(`/api/client/tickets?install_id=${encodeURIComponent(identity.install_id)}`);
-    _ticketItems = await Promise.all((tickets || []).map(async (item) => {
-      try {
-        const messages = await _ticketFetch(`/api/client/tickets/${item.id}/messages?install_id=${encodeURIComponent(identity.install_id)}`);
-        return { ...item, messages: messages || [] };
-      } catch (_) {
-        return { ...item, messages: [] };
-      }
-    }));
-    if (!_ticketTargetId) _ticketTargetId = _getLatestUnreadTicketId();
-    _renderTicketList();
-    _refreshTicketReplyDot();
-    _ticketUnreadPollInitialized = true;
-  } catch (err) {
-    _setTicketSubmitMessage(err.message || '工单列表刷新失败', true);
+    return await _ticketRefreshPromise;
+  } finally {
+    _ticketRefreshPromise = null;
   }
 }
 
@@ -1659,6 +1840,19 @@ function _toggleTicketHistory(open, targetTicketId = null) {
   } else {
     _ticketTargetId = null;
   }
+}
+
+function _trackTicketRequest(timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  _ticketRequestControllers.add(controller);
+  return {
+    controller,
+    release() {
+      clearTimeout(timer);
+      _ticketRequestControllers.delete(controller);
+    },
+  };
 }
 
 async function _submitTicket() {
@@ -1735,12 +1929,20 @@ async function _submitTicket() {
     }
 
     const base = _ticketApiBase();
-    const resp = await fetch(`${base}/api/tickets`, {
-      method: 'POST',
-      body,
-      cache: 'no-store',
-    });
-    const json = await resp.json().catch(() => ({ s: 'error', m: '工单服务返回异常' }));
+    const request = _trackTicketRequest(30000);
+    let resp;
+    let json;
+    try {
+      resp = await fetch(`${base}/api/tickets`, {
+        method: 'POST',
+        body,
+        cache: 'no-store',
+        signal: request.controller.signal,
+      });
+      json = await resp.json().catch(() => ({ s: 'error', m: '工单服务返回异常' }));
+    } finally {
+      request.release();
+    }
     if (!resp.ok || json.s !== 'ok') throw new Error(json.m || '提交失败');
 
     titleEl.value = '';
@@ -1874,6 +2076,100 @@ function setupTicketCenter() {
 
 // ========== 应用设置页面 ==========
 async function setupAppSettings() {
+  const displayModeControl = document.getElementById('price-display-mode');
+  const taskbarButton = displayModeControl?.querySelector('[data-display-mode="taskbar"]');
+  const displayStatus = document.getElementById('taskbar-display-status');
+  const taskbarOptions = document.getElementById('taskbar-display-options');
+  const hideLabels = document.getElementById('taskbar-hide-labels');
+  const placement = document.getElementById('taskbar-placement');
+
+  if (hideLabels) {
+    hideLabels.checked = state.taskbarHideLabels;
+    hideLabels.addEventListener('change', () => {
+      state.taskbarHideLabels = hideLabels.checked;
+      localStorage.setItem('taskbarHideLabels', state.taskbarHideLabels.toString());
+      _updateTaskbarPayload();
+      saveState();
+    });
+  }
+  if (placement) {
+    placement.value = state.taskbarPlacement;
+    placement.addEventListener('change', () => {
+      const nextPlacement = placement.value === 'left' ? 'left' : 'right';
+      setManagedTimeout('taskbar-placement-save', () => {
+        state.taskbarPlacement = nextPlacement;
+        saveState();
+      }, 160);
+    });
+  }
+
+  const renderDisplayMode = (status = _taskbarStatus) => {
+    displayModeControl?.querySelectorAll('[data-display-mode]').forEach((button) => {
+      const active = button.dataset.displayMode === state.priceDisplayMode;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+    taskbarOptions?.classList.toggle('is-visible', state.priceDisplayMode === 'taskbar');
+    if (taskbarButton) taskbarButton.disabled = !!status && !status.supported;
+    if (!displayStatus) return;
+    if (!status) {
+      displayStatus.textContent = '正在检测任务栏';
+      displayStatus.className = 'taskbar-display-status';
+      return;
+    }
+    const reasonLabels = {
+      unsupported_os: '仅支持 Windows 10/11 主任务栏',
+      unsupported_shell: '当前任务栏组件不受支持，已使用桌面浮窗',
+      no_space: '任务栏空间不足，已临时使用桌面浮窗',
+      explorer_restarting: '任务栏正在恢复，已临时使用桌面浮窗',
+      attach_failed: '任务栏挂载失败，已临时使用桌面浮窗',
+      layout_unstable: '任务栏布局不稳定，已停止调整并使用桌面浮窗',
+      restore_pending: '正在恢复任务栏布局，已使用桌面浮窗',
+    };
+    if (status.fallbackReason) {
+      displayStatus.textContent = reasonLabels[status.fallbackReason] || '已临时使用桌面浮窗';
+      displayStatus.className = 'taskbar-display-status is-warning';
+    } else if (state.priceDisplayMode === 'taskbar' && status.attached) {
+      displayStatus.textContent = state.taskbarPlacement === 'left'
+        ? '已显示在天气组件右侧'
+        : '已显示在通知区左侧';
+      displayStatus.className = 'taskbar-display-status is-ready';
+    } else {
+      displayStatus.textContent = '桌面浮窗显示中';
+      displayStatus.className = 'taskbar-display-status';
+    }
+  };
+
+  renderDisplayMode();
+  try {
+    _taskbarStatus = await getTaskbarDisplayStatus();
+    if (_taskbarStatus && !_taskbarStatus.supported && state.priceDisplayMode === 'taskbar') {
+      state.priceDisplayMode = 'bubble';
+      localStorage.setItem('priceDisplayMode', 'bubble');
+      await setPriceDisplayMode('bubble').catch(() => {});
+    }
+    renderDisplayMode(_taskbarStatus);
+  } catch (_) {}
+  await setPriceDisplayMode(state.priceDisplayMode).catch(() => {});
+  displayModeControl?.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-display-mode]');
+    if (!button || button.disabled) return;
+    const mode = button.dataset.displayMode;
+    if (mode !== 'bubble' && mode !== 'taskbar') return;
+    state.priceDisplayMode = mode;
+    localStorage.setItem('priceDisplayMode', mode);
+    renderDisplayMode();
+    try {
+      await setPriceDisplayMode(mode);
+      _taskbarStatus = await getTaskbarDisplayStatus();
+      renderDisplayMode(_taskbarStatus);
+    } catch (_) {
+      state.priceDisplayMode = 'bubble';
+      localStorage.setItem('priceDisplayMode', 'bubble');
+      renderDisplayMode();
+    }
+  });
+
   // 开机自启 - 使用已经同步的状态
   const autoStartCheckbox = document.getElementById('auto-start');
   if (autoStartCheckbox) {
@@ -1908,20 +2204,68 @@ async function setupAppSettings() {
   }
 
   setupTicketCenter();
+
+  window.__renderTaskbarDisplayStatus = (status) => {
+    _taskbarStatus = status;
+    renderDisplayMode(status);
+  };
+}
+
+const BACKUP_SETTING_KEYS = [
+  'selectedCodes',
+  'bubbleRows',
+  'bubbleMinimal',
+  'bubbleTheme',
+  'bubbleThemeColor',
+  'bubbleFontSize',
+  'bubbleFontColor',
+  'bubbleOpacity',
+  'showPnl',
+  'selectedPnlWarehouses',
+  'autoStart',
+  'priceDisplayMode',
+  'taskbarHideLabels',
+  'taskbarPlacement',
+];
+
+function _getBackupSettings() {
+  return Object.fromEntries(BACKUP_SETTING_KEYS.map(key => [key, state[key]]));
+}
+
+function _restoreBackupSettings(config) {
+  const numberInRange = (value, fallback, min, max) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+  };
+  state.selectedCodes = Array.isArray(config.selectedCodes)
+    ? config.selectedCodes.filter(code => typeof code === 'string')
+    : state.selectedCodes;
+  state.bubbleRows = numberInRange(config.bubbleRows, state.bubbleRows, 1, 20);
+  state.bubbleMinimal = config.bubbleMinimal === true;
+  state.bubbleTheme = config.bubbleTheme === 'dark' ? 'dark' : 'light';
+  state.bubbleThemeColor = ALLOWED_THEME_COLORS.has(config.bubbleThemeColor)
+    ? config.bubbleThemeColor
+    : 'blue';
+  state.bubbleFontSize = numberInRange(config.bubbleFontSize, state.bubbleFontSize, 10, 15);
+  state.bubbleFontColor = typeof config.bubbleFontColor === 'string' ? config.bubbleFontColor : 'black';
+  state.bubbleOpacity = numberInRange(config.bubbleOpacity, state.bubbleOpacity, 20, 100);
+  state.showPnl = config.showPnl === true;
+  state.selectedPnlWarehouses = Array.isArray(config.selectedPnlWarehouses)
+    ? config.selectedPnlWarehouses.filter(id => typeof id === 'string')
+    : [];
+  state.autoStart = config.autoStart === true;
+  state.priceDisplayMode = config.priceDisplayMode === 'taskbar' ? 'taskbar' : 'bubble';
+  state.taskbarHideLabels = config.taskbarHideLabels === true;
+  state.taskbarPlacement = config.taskbarPlacement === 'left' ? 'left' : 'right';
 }
 
 function exportData() {
   try {
     const data = {
-      version: '1.0',
+      version: '2.0',
       timestamp: Date.now(),
-      config: { ...state },
-      identity: _clientIdentity ? {
-        installId: _clientIdentity.install_id || '',
-        legacyClientId: _clientIdentity.legacy_client_id || '',
-        createdAt: _clientIdentity.created_at || '',
-      } : null,
-      warehouses: loadWarehouses()
+      config: _getBackupSettings(),
+      warehouses: loadWarehouses(),
     };
     
     const json = JSON.stringify(data, null, 2);
@@ -1949,19 +2293,22 @@ function importData() {
     if (!file) return;
     
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const data = JSON.parse(event.target.result);
-        
-        // 恢复配置
-        Object.assign(state, data.config);
-        saveState();
-        
-        // 恢复仓库
-        if (data.warehouses) {
+        if (!data || typeof data !== 'object' || !data.config || typeof data.config !== 'object') {
+          throw new Error('invalid backup');
+        }
+
+        _restoreBackupSettings(data.config);
+        if (Array.isArray(data.warehouses)) {
           localStorage.setItem('warehouses', JSON.stringify(data.warehouses));
         }
-        
+
+        await saveState();
+        await setPriceDisplayMode(state.priceDisplayMode === 'taskbar' ? 'taskbar' : 'bubble').catch(() => {});
+        await invoke('set_auto_start', { enabled: state.autoStart === true }).catch(() => {});
+
         alert('数据导入成功！页面即将刷新。');
         location.reload();
       } catch (_) {
@@ -2140,7 +2487,7 @@ function renderPreview() {
   const selectedPnls = [];
   
   if (state.showPnl && state.selectedPnlWarehouses.length > 0) {
-    // 计算总仓营收
+    // 计算总仓盈亏
     if (state.selectedPnlWarehouses.includes('__total__')) {
       let totalPnl = 0;
       warehouses.forEach(w => {
@@ -2150,7 +2497,7 @@ function renderPreview() {
         const pnl = currentValue - (w.totalCost || 0);
         if (getCurrency(w.refPrice) === '￥' || getCurrency(w.refPrice) === '¥') totalPnl += pnl;
       });
-      selectedPnls.push({ name: '总仓营收', pnl: totalPnl, currency: '￥' });
+      selectedPnls.push({ name: '总仓盈亏', pnl: totalPnl, currency: '￥' });
     }
     
     // 各个仓库的盈亏
@@ -2299,6 +2646,29 @@ function _formatUpdateDate(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function _renderUpdateNotes(container, notes) {
+  if (!container) return;
+  container.replaceChildren();
+  const lines = String(notes || '暂无更新说明。')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  lines.forEach((line, index) => {
+    const item = document.createElement('div');
+    const bulletMatch = line.match(/^(?:[-•*]|\d+[.、])\s*(.+)$/);
+    const looksLikeHeading = index === 0 && /^v?\d+\.\d+/i.test(line);
+    item.className = looksLikeHeading
+      ? 'update-note-heading'
+      : bulletMatch
+        ? 'update-note-item'
+        : 'update-note-paragraph';
+    item.textContent = bulletMatch?.[1] || line;
+    container.appendChild(item);
+  });
+}
+
 function _updateSettingsUpdatePanel(updateInfo, currentVersion = '') {
   const availableLabel = document.getElementById('update-available-label');
   if (availableLabel) availableLabel.style.display = updateInfo?.version ? '' : 'none';
@@ -2424,7 +2794,7 @@ function _showUpdateConfirmDialog(updateInfo) {
   if (metaEl) metaEl.textContent = _formatUpdateDate(updateInfo.pub_date);
   if (currentEl) currentEl.textContent = `v${currentVersion}`;
   if (newEl) newEl.textContent = `v${updateInfo.version}`;
-  if (bodyEl) bodyEl.textContent = updateInfo.notes || '暂无更新说明。';
+  _renderUpdateNotes(bodyEl, updateInfo.notes);
 
   const close = () => {
     _updatePromptDismissedVersion = updateInfo.version;
@@ -2516,8 +2886,8 @@ async function init() {
     const wcMaxBtn = document.getElementById('wc-max');
     if (!wcMaxBtn) return;
     wcMaxBtn.innerHTML = maximized
-      ? '<svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M6.2 4.2h7.6v7.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><path d="M11.8 13.8H4.2V6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><path d="M13.8 4.2L8.4 9.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>'
-      : '<svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="4.2" y="4.2" width="9.6" height="9.6" rx="1.4" stroke="currentColor" stroke-width="1.6"></rect></svg>';
+      ? '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 6V5.5A1.5 1.5 0 0 1 8.5 4h6A1.5 1.5 0 0 1 16 5.5v6a1.5 1.5 0 0 1-1.5 1.5H14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path><rect x="4" y="7" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.6"></rect></svg>'
+      : '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="4.5" y="4.5" width="11" height="11" rx="1.4" stroke="currentColor" stroke-width="1.6"></rect></svg>';
     wcMaxBtn.title = maximized ? '还原' : '最大化';
     wcMaxBtn.setAttribute('aria-label', maximized ? '还原' : '最大化');
   };
@@ -2526,6 +2896,9 @@ async function init() {
   const wcMax = document.getElementById('wc-max');
   if (wcMax && _appWin) {
     _appWin.isMaximized().then(_setWcMaxIcon).catch(() => {});
+    _appWin.onResized?.(() => {
+      _appWin.isMaximized().then(_setWcMaxIcon).catch(() => {});
+    })?.catch(() => {});
     wcMax.addEventListener('click', async () => {
       const isMax = await _appWin.isMaximized().catch(() => false);
       if (isMax) {
@@ -2541,6 +2914,17 @@ async function init() {
   // 初始化 dataSource（同步，不阻塞）
   dataSource.setLogger((level, event, message, context) => appLog(level, 'datasource', event, message, context));
   dataSource.init(httpFetch, SERVER_URL);
+  _connectSSE();
+  _sseLastHealthCheckAt = Date.now();
+  setManagedInterval('manager-sse-health', () => _checkSseHealth('interval'), SSE_HEALTH_CHECK_INTERVAL_MS);
+  const onNetworkOnline = () => _restartSseConnection('network_online');
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'visible') _checkSseHealth('visibility');
+  };
+  window.addEventListener('online', onNetworkOnline);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  registerCleanup(() => window.removeEventListener('online', onNetworkOnline));
+  registerCleanup(() => document.removeEventListener('visibilitychange', onVisibilityChange));
   chartModule.configure?.({
     httpFetch,
     logger: (level, event, message, context) => appLog(level, 'kline_cache', event, message, context),
@@ -2678,11 +3062,41 @@ async function init() {
       }
     });
     registerCleanup(() => { try { unlistenSnapshotRequest(); } catch (_) {} });
+
+    const unlistenTaskbarStatus = await listenFn('taskbar-display-status', (event) => {
+      _taskbarStatus = event.payload || null;
+      window.__renderTaskbarDisplayStatus?.(_taskbarStatus);
+    });
+    registerCleanup(() => { try { unlistenTaskbarStatus(); } catch (_) {} });
+
+    const unlistenTaskbarSettings = await listenFn('open-taskbar-settings', () => {
+      switchView('bubble-style');
+      document.getElementById('price-display-settings')?.scrollIntoView({ block: 'center' });
+    });
+    registerCleanup(() => { try { unlistenTaskbarSettings(); } catch (_) {} });
+
+    const unlistenDisplayMode = await listenFn('price-display-mode-changed', (event) => {
+      const mode = event.payload === 'taskbar' ? 'taskbar' : 'bubble';
+      state.priceDisplayMode = mode;
+      localStorage.setItem('priceDisplayMode', mode);
+      window.__renderTaskbarDisplayStatus?.(_taskbarStatus);
+    });
+    registerCleanup(() => { try { unlistenDisplayMode(); } catch (_) {} });
+
+    const unlistenHideLabels = await listenFn('taskbar-hide-labels-changed', (event) => {
+      state.taskbarHideLabels = event.payload === true;
+      localStorage.setItem('taskbarHideLabels', state.taskbarHideLabels.toString());
+      const checkbox = document.getElementById('taskbar-hide-labels');
+      if (checkbox) checkbox.checked = state.taskbarHideLabels;
+      _updateTaskbarPayload();
+    });
+    registerCleanup(() => { try { unlistenHideLabels(); } catch (_) {} });
   }
 
   // 监听窗口获得焦点时刷新开机自启状态
   const onWindowFocus = async () => {
     if (_isPageUnloading) return;
+    _checkSseHealth('focus');
     const now = Date.now();
     if (now - _lastTicketRefreshAt > 4000) {
       _refreshTicketList().catch(() => {});
@@ -2726,10 +3140,9 @@ async function _initAsync() {
   renderPreview();
 
   sessionStorage.removeItem('eulaJustAccepted');
-  await _fetchFieldMap({ force: true });
+  await _fetchFieldMap();
   if (_isPageUnloading) return;
   renderPriceListPlaceholders();
-  _connectSSE();
   updatePnlSummary();
   renderPreview();
 

@@ -769,11 +769,19 @@ func main() {
 	log.Printf("kline usd=%d cny=%d", len(klineUSD.daily), len(klineCNY.daily))
 
 	update := func() {
-		p := fetchAll(sources)
-		sse := buildSSE(p)
+		fresh := fetchAll(sources)
 		priceMu.Lock()
-		prices = p
+		for key, value := range fresh {
+			if value > 0 {
+				prices[key] = value
+			}
+		}
+		p := make(map[string]float64, len(prices))
+		for key, value := range prices {
+			p[key] = value
+		}
 		priceMu.Unlock()
+		sse := buildSSE(p)
 		publishPayload(sse)
 
 		now := time.Now()

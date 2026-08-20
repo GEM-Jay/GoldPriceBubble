@@ -17,6 +17,7 @@ const chartModule = (() => {
   let _activationSeq = 0;
   let _httpFetch = null;
   let _log = async () => {};
+  const _livePrices = { cny: null, usd: null };
   const _cleanupFns = [];
 
   function registerCleanup(fn) {
@@ -113,6 +114,24 @@ const chartModule = (() => {
     if (_range === 7) return 0.18;
     if (_range === 30) return 0.16;
     return 0.12;
+  }
+
+  function _renderLivePrice() {
+    const nameEl = document.getElementById('chart-commodity-name');
+    const priceEl = document.getElementById('chart-price-display');
+    const price = _livePrices[_currency];
+    if (nameEl) nameEl.textContent = _currency === 'usd' ? '伦敦金' : '黄金延期';
+    if (priceEl) {
+      if (Number.isFinite(price)) {
+        priceEl.textContent = `${_sym()}${_formatValue(price, 2)}`;
+      } else {
+        priceEl.innerHTML = `<span class="number-loading-dots" role="status" aria-label="行情加载中">
+          <span class="number-loading-dot"></span>
+          <span class="number-loading-dot"></span>
+          <span class="number-loading-dot"></span>
+        </span>`;
+      }
+    }
   }
 
   function _aggMins(data, mins) {
@@ -276,15 +295,12 @@ const chartModule = (() => {
   }
 
   function _updateStats(raw) {
-    const nm = document.getElementById('chart-commodity-name');
-    const priceEl = document.getElementById('chart-price-display');
     const changeEl = document.getElementById('chart-change-display');
     const statsEl = document.getElementById('chart-mini-stats');
+    _renderLivePrice();
     if (!raw.length) {
-      if (priceEl) priceEl.textContent = '—';
       if (changeEl) changeEl.textContent = '';
       if (statsEl) statsEl.innerHTML = '';
-      if (nm) nm.textContent = _currency === 'usd' ? '伦敦金' : '黄金延期';
       return;
     }
 
@@ -295,8 +311,6 @@ const chartModule = (() => {
     const pct = first ? ((delta / first) * 100).toFixed(2) : '0.00';
     const hi = Math.max(...raw.map((r) => r[2]));
     const lo = Math.min(...raw.map((r) => r[3]));
-    if (nm) nm.textContent = _currency === 'usd' ? '伦敦金' : '黄金延期';
-    if (priceEl) priceEl.textContent = `${_sym()}${last.toFixed(2)}`;
     if (changeEl) {
       changeEl.innerHTML = `
         <span class="chg-pill ${delta >= 0 ? 'up' : 'down'}">${sign}${delta.toFixed(2)}</span>
@@ -481,14 +495,13 @@ const chartModule = (() => {
   }
 
   function _showEmpty(message, options = {}) {
-    const priceEl = document.getElementById('chart-price-display');
     const changeEl = document.getElementById('chart-change-display');
     const statsEl = document.getElementById('chart-mini-stats');
     const c = _palette();
     const title = options.title || message;
     const detail = options.detail || '';
     const badge = options.badge || '暂无数据';
-    if (priceEl) priceEl.textContent = '—';
+    _renderLivePrice();
     if (changeEl) changeEl.textContent = '';
     if (statsEl) statsEl.innerHTML = '';
     if (_chart) {
@@ -687,7 +700,13 @@ const chartModule = (() => {
     disposeData();
   }
 
-  function updateLivePrice() {}
+  function updateLivePrice(price, market) {
+    if (market !== 'cny' && market !== 'usd') return;
+    const value = Number(price);
+    if (!Number.isFinite(value) || value <= 0) return;
+    _livePrices[market] = value;
+    if (market === _currency) _renderLivePrice();
+  }
 
   function configure(options = {}) {
     _httpFetch = options.httpFetch || null;

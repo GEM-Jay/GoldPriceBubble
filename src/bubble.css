@@ -24,7 +24,7 @@
   --bubble-shadow-bleed: 0.5em;
   
   --bubble-radius: 16px;
-  --bubble-padding: 10px ;
+  --bubble-padding: 10px;
   
   --price-up: #ff3b30;
   --price-down: #34c759;
@@ -359,7 +359,7 @@ body::-webkit-scrollbar {
 }
 
 .title {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -560,17 +560,5 @@ body::-webkit-scrollbar {
   .loading-hint {
     animation: none !important;
     transition: none !important;
-  }
-}
-
-@media (max-width: 1920px) {
-  .bubble {
-    font-size: 12px;
-  }
-}
-
-@media (min-width: 2560px) {
-  .bubble {
-    font-size: 14px;
   }
 }

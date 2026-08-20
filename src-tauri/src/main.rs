@@ -1,15 +1,23 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Mutex, OnceLock, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Mutex, OnceLock,
+};
 use tauri::{
-    AppHandle, CustomMenuItem, Manager, PhysicalPosition, LogicalSize, SystemTray,
-    SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem, Window,
+    AppHandle, CustomMenuItem, LogicalSize, Manager, PhysicalPosition, SystemTray, SystemTrayEvent,
+    SystemTrayMenu, SystemTrayMenuItem, Window,
 };
 use window_shadows::set_shadow;
+
+mod taskbar_host;
+use taskbar_host::{
+    PriceDisplayMode, StatusCallback, TaskbarDisplayPayload, TaskbarDisplayStatus, TaskbarHost,
+};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -18,7 +26,7 @@ const CLIENT_LOG_MAX_BYTES: usize = 10 * 1024 * 1024;
 const CLIENT_LOG_EXPORT_BYTES: usize = 1024 * 1024;
 static RUNTIME_METADATA: OnceLock<serde_json::Value> = OnceLock::new();
 static SESSION_STATE_PATH: OnceLock<PathBuf> = OnceLock::new();
-const WATCHDOG_GRACE_SECS: i64 = 45;
+static LAST_MANAGER_DPI_FIX_MS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ClientIdentity {
@@ -42,7 +50,6 @@ struct SessionStateRecord {
 struct AppState {
     bubble_visible: Mutex<bool>,
     auto_start_enabled: Mutex<bool>,
-    bubble_topmost_task_started: AtomicBool,
     active_download_id: Mutex<Option<String>>,
 }
 
@@ -53,17 +60,31 @@ async fn quit_app(app: AppHandle) {
     request_app_exit(&app, "quit_app_command");
 }
 
-// 用 SetWindowPos 以物理像素重新应用窗口尺寸，修复高 DPI 白边
 #[cfg(target_os = "windows")]
 fn fix_window_dpi(window: &tauri::Window) {
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOMOVE, SWP_NOZORDER, SWP_FRAMECHANGED};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOZORDER,
+    };
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let previous = LAST_MANAGER_DPI_FIX_MS.swap(now_ms, Ordering::Relaxed);
+    if now_ms.saturating_sub(previous) < 400 {
+        return;
+    }
     if let (Ok(hwnd), Ok(size)) = (window.hwnd(), window.outer_size()) {
         unsafe {
             let _ = SetWindowPos(
-                HWND(hwnd.0), HWND(0), 0, 0,
-                size.width as i32, size.height as i32,
-                SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                HWND(hwnd.0),
+                HWND(0),
+                0,
+                0,
+                size.width as i32,
+                size.height as i32,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             );
         }
     }
@@ -71,19 +92,6 @@ fn fix_window_dpi(window: &tauri::Window) {
 
 #[cfg(not(target_os = "windows"))]
 fn fix_window_dpi(_window: &tauri::Window) {}
-
-#[cfg(target_os = "windows")]
-fn schedule_manager_dpi_fix(window: Window) {
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-        fix_window_dpi(&window);
-        tokio::time::sleep(std::time::Duration::from_millis(220)).await;
-        fix_window_dpi(&window);
-    });
-}
-
-#[cfg(not(target_os = "windows"))]
-fn schedule_manager_dpi_fix(_window: Window) {}
 
 #[tauri::command]
 async fn fix_manager_dpi(app: AppHandle) -> Result<(), String> {
@@ -93,43 +101,247 @@ async fn fix_manager_dpi(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-async fn fit_manager_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_window("manager") {
-        let target_w = 1200.0;
-        let target_h = 800.0;
-        let min_w = 900.0;
-        let min_h = 600.0;
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ManagerWindowFit {
+    width: f64,
+    height: f64,
+    min_width: f64,
+    min_height: f64,
+}
 
-        let scale = window.scale_factor().unwrap_or(1.0);
+fn calculate_manager_window_fit(work_width: f64, work_height: f64) -> ManagerWindowFit {
+    const TARGET_WIDTH: f64 = 1200.0;
+    const TARGET_HEIGHT: f64 = 800.0;
+    const PREFERRED_MIN_WIDTH: f64 = 900.0;
+    const PREFERRED_MIN_HEIGHT: f64 = 600.0;
+
+    let work_width = work_width.max(1.0).floor();
+    let work_height = work_height.max(1.0).floor();
+    ManagerWindowFit {
+        width: TARGET_WIDTH.min(work_width),
+        height: TARGET_HEIGHT.min(work_height),
+        min_width: PREFERRED_MIN_WIDTH.min(work_width),
+        min_height: PREFERRED_MIN_HEIGHT.min(work_height),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn manager_work_area(window: &tauri::Window) -> Result<(i32, i32, u32, u32), String> {
+    use std::mem::size_of;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    unsafe {
+        let monitor = MonitorFromWindow(HWND(hwnd.0), MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return Err("GetMonitorInfoW failed".to_string());
+        }
+        let width = (info.rcWork.right - info.rcWork.left).max(1) as u32;
+        let height = (info.rcWork.bottom - info.rcWork.top).max(1) as u32;
+        Ok((info.rcWork.left, info.rcWork.top, width, height))
+    }
+}
+
+fn clamp_window_position_to_work_area(
+    x: i32,
+    y: i32,
+    window_width: u32,
+    window_height: u32,
+    work_left: i32,
+    work_top: i32,
+    work_width: u32,
+    work_height: u32,
+) -> (i32, i32) {
+    let left = i64::from(work_left);
+    let top = i64::from(work_top);
+    let max_x = (left + i64::from(work_width) - i64::from(window_width)).max(left);
+    let max_y = (top + i64::from(work_height) - i64::from(window_height)).max(top);
+    (
+        i64::from(x).clamp(left, max_x) as i32,
+        i64::from(y).clamp(top, max_y) as i32,
+    )
+}
+
+fn constrain_bubble_to_work_area(window: &tauri::Window) -> Result<(), String> {
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    let (work_left, work_top, work_width, work_height) = manager_work_area(window)?;
+    #[cfg(not(target_os = "windows"))]
+    let (work_left, work_top, work_width, work_height) = {
         let monitor = window
             .current_monitor()
             .map_err(|e| e.to_string())?
-            .or_else(|| window.primary_monitor().ok().flatten());
+            .or_else(|| window.primary_monitor().ok().flatten())
+            .ok_or_else(|| "no monitor available".to_string())?;
+        (
+            monitor.position().x,
+            monitor.position().y,
+            monitor.size().width,
+            monitor.size().height,
+        )
+    };
 
-        let (width, height) = if let Some(monitor) = monitor {
-            let monitor_w = monitor.size().width as f64 / scale;
-            let monitor_h = monitor.size().height as f64 / scale;
-            let width_ratio = monitor_w / target_w;
-            let height_ratio = monitor_h / target_h;
-            let ratio = width_ratio.min(height_ratio).min(1.0);
+    let (x, y) = clamp_window_position_to_work_area(
+        position.x,
+        position.y,
+        size.width,
+        size.height,
+        work_left,
+        work_top,
+        work_width,
+        work_height,
+    );
+    if x != position.x || y != position.y {
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 
-            let fitted_w = (target_w * ratio).floor().max(min_w);
-            let fitted_h = (target_h * ratio).floor().max(min_h);
+#[tauri::command]
+async fn fit_manager_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_window("manager") {
+        if window.is_maximized().unwrap_or(false) {
+            fix_window_dpi(&window);
+            return Ok(());
+        }
+
+        #[cfg(target_os = "windows")]
+        let (work_left, work_top, work_physical_width, work_physical_height) =
+            manager_work_area(&window)?;
+        #[cfg(not(target_os = "windows"))]
+        let (work_left, work_top, work_physical_width, work_physical_height) = {
+            let monitor = window
+                .current_monitor()
+                .map_err(|e| e.to_string())?
+                .or_else(|| window.primary_monitor().ok().flatten())
+                .ok_or_else(|| "no monitor available".to_string())?;
             (
-                fitted_w.min(monitor_w).max(min_w),
-                fitted_h.min(monitor_h).max(min_h),
+                monitor.position().x,
+                monitor.position().y,
+                monitor.size().width,
+                monitor.size().height,
             )
-        } else {
-            (target_w, target_h)
         };
 
+        let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
+        let fit = calculate_manager_window_fit(
+            work_physical_width as f64 / scale,
+            work_physical_height as f64 / scale,
+        );
         window
-            .set_size(LogicalSize::new(width, height))
+            .set_min_size(Some(LogicalSize::new(fit.min_width, fit.min_height)))
+            .map_err(|e| e.to_string())?;
+        window
+            .set_size(LogicalSize::new(fit.width, fit.height))
+            .map_err(|e| e.to_string())?;
+
+        let physical_width = (fit.width * scale).round() as i32;
+        let physical_height = (fit.height * scale).round() as i32;
+        let x = work_left + (work_physical_width as i32 - physical_width).max(0) / 2;
+        let y = work_top + (work_physical_height as i32 - physical_height).max(0) / 2;
+        window
+            .set_position(PhysicalPosition::new(x, y))
             .map_err(|e| e.to_string())?;
         fix_window_dpi(&window);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod manager_window_fit_tests {
+    use super::{calculate_manager_window_fit, ManagerWindowFit};
+
+    #[test]
+    fn keeps_preferred_size_when_work_area_is_large_enough() {
+        assert_eq!(
+            calculate_manager_window_fit(1920.0, 1040.0),
+            ManagerWindowFit {
+                width: 1200.0,
+                height: 800.0,
+                min_width: 900.0,
+                min_height: 600.0,
+            }
+        );
+    }
+
+    #[test]
+    fn uses_each_available_axis_without_aspect_ratio_gaps() {
+        assert_eq!(
+            calculate_manager_window_fit(1280.0, 680.0),
+            ManagerWindowFit {
+                width: 1200.0,
+                height: 680.0,
+                min_width: 900.0,
+                min_height: 600.0,
+            }
+        );
+    }
+
+    #[test]
+    fn never_exceeds_a_small_work_area() {
+        assert_eq!(
+            calculate_manager_window_fit(800.0, 450.0),
+            ManagerWindowFit {
+                width: 800.0,
+                height: 450.0,
+                min_width: 800.0,
+                min_height: 450.0,
+            }
+        );
+    }
+
+    #[test]
+    fn fits_a_4k_work_area_at_200_percent_scaling() {
+        assert_eq!(
+            calculate_manager_window_fit(3840.0 / 2.0, 2080.0 / 2.0),
+            ManagerWindowFit {
+                width: 1200.0,
+                height: 800.0,
+                min_width: 900.0,
+                min_height: 600.0,
+            }
+        );
+    }
+}
+
+#[cfg(test)]
+mod bubble_position_tests {
+    use super::clamp_window_position_to_work_area;
+
+    #[test]
+    fn keeps_bubble_below_a_top_taskbar() {
+        assert_eq!(
+            clamp_window_position_to_work_area(420, -80, 220, 120, 0, 48, 1920, 1032),
+            (420, 48)
+        );
+    }
+
+    #[test]
+    fn keeps_bubble_above_a_bottom_taskbar() {
+        assert_eq!(
+            clamp_window_position_to_work_area(1720, 1040, 220, 120, 0, 0, 1920, 1040),
+            (1700, 920)
+        );
+    }
+
+    #[test]
+    fn supports_negative_secondary_monitor_coordinates() {
+        assert_eq!(
+            clamp_window_position_to_work_area(-2100, 300, 220, 120, -1920, 0, 1920, 1040),
+            (-1920, 300)
+        );
+    }
 }
 
 #[tauri::command]
@@ -156,46 +368,50 @@ async fn open_manager(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn hide_bubble(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_window("bubble") {
-        window.hide().map_err(|e| e.to_string())?;
-        let state: tauri::State<AppState> = app.state();
-        *state.bubble_visible.lock().unwrap() = false;
-        update_tray_menu(&app);
-        let _ = append_client_log_entry(
-            &app,
-            "info",
-            "window",
-            "hide_bubble_succeeded",
-            "bubble window hidden",
-            None,
-        );
-    }
+    app.state::<TaskbarHost>().set_user_visible(false);
+    synchronize_price_display(&app)?;
     Ok(())
 }
 
 #[tauri::command]
 async fn show_bubble(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_window("bubble") {
-        window.show().map_err(|e| e.to_string())?;
-        #[cfg(target_os = "windows")]
-        apply_frameless_style(&window);
-        let state: tauri::State<AppState> = app.state();
-        *state.bubble_visible.lock().unwrap() = true;
-        update_tray_menu(&app);
-        let _ = append_client_log_entry(
-            &app,
-            "info",
-            "window",
-            "show_bubble_succeeded",
-            "bubble window shown",
-            None,
-        );
-    }
+    app.state::<TaskbarHost>().set_user_visible(true);
+    synchronize_price_display(&app)?;
     Ok(())
 }
 
 #[tauri::command]
-async fn resize_bubble(app: AppHandle, font_size: i32, rows: i32, pnl_rows: Option<i32>, content_width: Option<i32>, content_height: Option<i32>, dpi_scale: Option<f64>) -> Result<(), String> {
+async fn set_price_display_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    let mode = PriceDisplayMode::parse(&mode)?;
+    app.state::<TaskbarHost>().set_mode(mode);
+    synchronize_price_display(&app)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn update_taskbar_display(
+    app: AppHandle,
+    payload: TaskbarDisplayPayload,
+) -> Result<(), String> {
+    app.state::<TaskbarHost>().update(payload);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_taskbar_display_status(app: AppHandle) -> Result<TaskbarDisplayStatus, String> {
+    Ok(app.state::<TaskbarHost>().status())
+}
+
+#[tauri::command]
+async fn resize_bubble(
+    app: AppHandle,
+    font_size: i32,
+    rows: i32,
+    pnl_rows: Option<i32>,
+    content_width: Option<i32>,
+    content_height: Option<i32>,
+    dpi_scale: Option<f64>,
+) -> Result<(), String> {
     if let Some(window) = app.get_window("bubble") {
         let base_font_size = 12.0;
         let font_size_f = font_size as f64;
@@ -225,7 +441,8 @@ async fn resize_bubble(app: AppHandle, font_size: i32, rows: i32, pnl_rows: Opti
             let has_pnl = pnl_rows.unwrap_or(0) > 0;
             let separator_height = if has_pnl { 11.0 } else { 0.0 };
             let valid_rows = rows.max(1);
-            let             c_height = (line_height + line_spacing) * valid_rows as f64 - line_spacing + separator_height;
+            let c_height =
+                (line_height + line_spacing) * valid_rows as f64 - line_spacing + separator_height;
             header_height + padding_vertical + c_height + 20.0
         };
 
@@ -261,9 +478,7 @@ async fn set_bubble_size(app: AppHandle, width: f64, height: f64) -> Result<(), 
         #[cfg(target_os = "windows")]
         {
             use windows::Win32::Foundation::HWND;
-            use windows::Win32::UI::WindowsAndMessaging::{
-                SetWindowPos, SWP_NOMOVE, SWP_NOZORDER,
-            };
+            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOMOVE, SWP_NOZORDER};
             let hwnd = window.hwnd().map_err(|e| e.to_string())?;
             // JS 已用 devicePixelRatio 换算为物理像素，直接使用
             let phys_w = width.round() as i32;
@@ -272,16 +487,22 @@ async fn set_bubble_size(app: AppHandle, width: f64, height: f64) -> Result<(), 
                 SetWindowPos(
                     HWND(hwnd.0),
                     HWND(0),
-                    0, 0,
-                    phys_w, phys_h,
+                    0,
+                    0,
+                    phys_w,
+                    phys_h,
                     SWP_NOMOVE | SWP_NOZORDER,
-                ).map_err(|e| e.to_string())?;
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
         #[cfg(not(target_os = "windows"))]
         {
-            window.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+            window
+                .set_size(LogicalSize::new(width, height))
+                .map_err(|e| e.to_string())?;
         }
+        constrain_bubble_to_work_area(&window)?;
     }
     Ok(())
 }
@@ -303,6 +524,7 @@ async fn move_bubble(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
         window
             .set_position(PhysicalPosition::new(x, y))
             .map_err(|e| e.to_string())?;
+        constrain_bubble_to_work_area(&window)?;
     }
     Ok(())
 }
@@ -310,22 +532,23 @@ async fn move_bubble(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
 #[tauri::command]
 async fn save_bubble_position(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_window("bubble") {
+        constrain_bubble_to_work_area(&window)?;
         let position = window.outer_position().map_err(|e| e.to_string())?;
-        
+
         // Save to file
         let app_data_dir = app
             .path_resolver()
             .app_data_dir()
             .ok_or("Failed to get app data dir")?;
-        
+
         std::fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
-        
+
         let config_path = app_data_dir.join("bubble-position.json");
         let config = serde_json::json!({
             "x": position.x,
             "y": position.y
         });
-        
+
         std::fs::write(config_path, config.to_string()).map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -337,18 +560,19 @@ async fn load_bubble_position(app: AppHandle) -> Result<Option<(i32, i32)>, Stri
         .path_resolver()
         .app_data_dir()
         .ok_or("Failed to get app data dir")?;
-    
+
     let config_path = app_data_dir.join("bubble-position.json");
-    
+
     if config_path.exists() {
         let content = std::fs::read_to_string(config_path).map_err(|e| e.to_string())?;
-        let config: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-        
+        let config: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
         if let (Some(x), Some(y)) = (config["x"].as_i64(), config["y"].as_i64()) {
             return Ok(Some((x as i32, y as i32)));
         }
     }
-    
+
     Ok(None)
 }
 
@@ -367,7 +591,7 @@ async fn clear_all_data_and_quit(app: AppHandle) -> Result<(), String> {
             std::fs::remove_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
         }
     }
-    
+
     // 退出应用
     request_app_exit(&app, "clear_all_data_and_quit");
     Ok(())
@@ -376,46 +600,45 @@ async fn clear_all_data_and_quit(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn set_auto_start(app: AppHandle, enabled: bool) -> Result<(), String> {
     use auto_launch::*;
-    
+
     let app_name = "GoldPrice";
     let app_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    
+
     let auto = AutoLaunchBuilder::new()
         .set_app_name(app_name)
         .set_app_path(&format!("\"{}\"", app_path.to_string_lossy()))
         .build()
         .map_err(|e| e.to_string())?;
-    
+
     if enabled {
         auto.enable().map_err(|e| e.to_string())?;
     } else {
         auto.disable().map_err(|e| e.to_string())?;
     }
-    
+
     // Update state and tray menu
     let state: tauri::State<AppState> = app.state();
     *state.auto_start_enabled.lock().unwrap() = enabled;
     update_tray_menu(&app);
-    
+
     Ok(())
 }
 
 #[tauri::command]
 async fn get_auto_start_status(_app: AppHandle) -> Result<bool, String> {
     use auto_launch::*;
-    
+
     let app_name = "GoldPrice";
     let app_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    
+
     let auto = AutoLaunchBuilder::new()
         .set_app_name(app_name)
         .set_app_path(&format!("\"{}\"", app_path.to_string_lossy()))
         .build()
         .map_err(|e| e.to_string())?;
-    
+
     auto.is_enabled().map_err(|e| e.to_string())
 }
-
 
 #[tauri::command]
 async fn notify_bubble(app: AppHandle, message: String) -> Result<(), String> {
@@ -615,75 +838,8 @@ fn request_app_exit(app: &AppHandle, reason: &str) {
         Some(serde_json::json!({ "reason": reason })),
     );
     let _ = update_session_state(app, "clean_exit", Some(reason));
+    app.state::<TaskbarHost>().restore_taskbar();
     app.exit(0);
-}
-
-#[cfg(target_os = "windows")]
-fn spawn_restart_watchdog(app: &AppHandle) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-
-    let session_path = session_state_path(app)?;
-    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let current_pid = std::process::id();
-
-    let watchdog_script = format!(
-        r#"$ErrorActionPreference = 'SilentlyContinue'
-$pidToWatch = {pid}
-$sessionPath = '{session_path}'
-$exePath = '{exe_path}'
-$graceSeconds = {grace}
-
-while ($true) {{
-  Start-Sleep -Seconds 20
-  $proc = Get-Process -Id $pidToWatch -ErrorAction SilentlyContinue
-  if ($proc) {{
-    continue
-  }}
-  if (-not (Test-Path -LiteralPath $sessionPath)) {{
-    break
-  }}
-  $raw = Get-Content -LiteralPath $sessionPath -Raw -ErrorAction SilentlyContinue
-  if ([string]::IsNullOrWhiteSpace($raw)) {{
-    break
-  }}
-  try {{
-    $state = $raw | ConvertFrom-Json
-  }} catch {{
-    break
-  }}
-  if ($state.status -ne 'running') {{
-    break
-  }}
-  try {{
-    $lastHeartbeat = [DateTimeOffset]::Parse($state.last_heartbeat_at)
-  }} catch {{
-    break
-  }}
-  $elapsed = ([DateTimeOffset]::UtcNow - $lastHeartbeat).TotalSeconds
-  if ($elapsed -lt $graceSeconds) {{
-    continue
-  }}
-  if ($state.exit_reason -and ($state.exit_reason -like '*install_update*')) {{
-    break
-  }}
-  if (Test-Path -LiteralPath $exePath) {{
-    Start-Process -FilePath $exePath -WindowStyle Hidden | Out-Null
-  }}
-  break
-}}"#,
-        pid = current_pid,
-        session_path = session_path.to_string_lossy().replace('\'', "''"),
-        exe_path = current_exe.to_string_lossy().replace('\'', "''"),
-        grace = WATCHDOG_GRACE_SECS,
-    );
-
-    Command::new("powershell")
-        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &watchdog_script])
-        .creation_flags(0x08000000)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
 }
 
 fn command_output_trimmed(program: &str, args: &[&str]) -> Option<String> {
@@ -699,12 +855,17 @@ fn command_output_trimmed(program: &str, args: &[&str]) -> Option<String> {
         return None;
     }
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() { None } else { Some(text) }
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 #[cfg(target_os = "windows")]
 fn detect_windows_version() -> Option<String> {
-    command_output_trimmed("cmd", &["/C", "ver"]).map(|text| text.replace('\r', "").replace('\n', " "))
+    command_output_trimmed("cmd", &["/C", "ver"])
+        .map(|text| text.replace('\r', "").replace('\n', " "))
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -775,7 +936,8 @@ fn append_client_log_entry(
         .append(true)
         .open(&path)
         .map_err(|e| e.to_string())?;
-    file.write_all(entry.to_string().as_bytes()).map_err(|e| e.to_string())?;
+    file.write_all(entry.to_string().as_bytes())
+        .map_err(|e| e.to_string())?;
     file.write_all(b"\n").map_err(|e| e.to_string())?;
     file.flush().map_err(|e| e.to_string())?;
     trim_log_file(&path, CLIENT_LOG_MAX_BYTES)
@@ -789,7 +951,10 @@ fn trim_log_file(path: &PathBuf, max_bytes: usize) -> Result<(), String> {
     if meta.len() as usize <= max_bytes {
         return Ok(());
     }
-    let mut file = OpenOptions::new().read(true).open(path).map_err(|e| e.to_string())?;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
     if buf.len() <= max_bytes {
@@ -805,14 +970,27 @@ fn trim_log_file(path: &PathBuf, max_bytes: usize) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_or_create_client_identity(app: AppHandle, legacy_client_id: Option<String>) -> Result<serde_json::Value, String> {
+fn get_or_create_client_identity(
+    app: AppHandle,
+    legacy_client_id: Option<String>,
+) -> Result<serde_json::Value, String> {
     let path = identity_path(&app)?;
     if path.exists() {
         let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let mut identity: ClientIdentity = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-        if identity.legacy_client_id.is_none() && legacy_client_id.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
+        let mut identity: ClientIdentity =
+            serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        if identity.legacy_client_id.is_none()
+            && legacy_client_id
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+        {
             identity.legacy_client_id = legacy_client_id.filter(|s| !s.trim().is_empty());
-            fs::write(&path, serde_json::to_vec_pretty(&identity).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            fs::write(
+                &path,
+                serde_json::to_vec_pretty(&identity).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
         }
         return Ok(serde_json::json!(identity));
     }
@@ -822,7 +1000,11 @@ fn get_or_create_client_identity(app: AppHandle, legacy_client_id: Option<String
         legacy_client_id: legacy_client_id.filter(|s| !s.trim().is_empty()),
         created_at: chrono_like_now(),
     };
-    fs::write(&path, serde_json::to_vec_pretty(&identity).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&identity).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(serde_json::json!(identity))
 }
 
@@ -849,20 +1031,35 @@ mod chrono_stub {
     pub struct DateTime(SystemTime);
 
     impl From<SystemTime> for DateTime {
-        fn from(value: SystemTime) -> Self { Self(value) }
+        fn from(value: SystemTime) -> Self {
+            Self(value)
+        }
     }
 
     impl DateTime {
         pub fn to_rfc3339(&self) -> String {
-            let secs = self.0.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-            let tm = time::OffsetDateTime::from_unix_timestamp(secs).unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-            tm.format(&time::format_description::well_known::Rfc3339).unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+            let secs = self
+                .0
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let tm = time::OffsetDateTime::from_unix_timestamp(secs)
+                .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+            tm.format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
         }
     }
 }
 
 #[tauri::command]
-fn append_client_log(app: AppHandle, level: String, module: String, event: String, message: String, context: Option<serde_json::Value>) -> Result<(), String> {
+fn append_client_log(
+    app: AppHandle,
+    level: String,
+    module: String,
+    event: String,
+    message: String,
+    context: Option<serde_json::Value>,
+) -> Result<(), String> {
     append_client_log_entry(&app, &level, &module, &event, &message, context)
 }
 
@@ -918,16 +1115,20 @@ async fn fetch_with_pre(
     let _ = client
         .get(&pre_url)
         .header("User-Agent", ua)
-        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
         .send()
-        .await;   // 忽略错误，继续尝试
+        .await; // 忽略错误，继续尝试
 
     // 随机延迟，模拟用户停留页面
     let jitter = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .subsec_millis() as u64 % 400;
+        .subsec_millis() as u64
+        % 400;
     tokio::time::sleep(std::time::Duration::from_millis(300 + jitter)).await;
 
     // 构建 API 请求头
@@ -962,7 +1163,8 @@ async fn fetch_with_pre(
     let jitter2 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .subsec_millis() as u64 % 300;
+        .subsec_millis() as u64
+        % 300;
     tokio::time::sleep(std::time::Duration::from_millis(200 + jitter2)).await;
 
     let second_body = client
@@ -1000,12 +1202,18 @@ fn is_download_active(app: &AppHandle, download_id: &str) -> bool {
 fn cleanup_update_downloads(keep_path: Option<&str>) {
     let temp_dir = std::env::temp_dir();
     let keep = keep_path.and_then(|path| std::fs::canonicalize(path).ok());
-    let Ok(entries) = std::fs::read_dir(temp_dir) else { return; };
+    let Ok(entries) = std::fs::read_dir(temp_dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue; };
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
         let is_goldprice_setup = name.starts_with("GoldPrice_") && name.ends_with("_x64-setup.exe");
-        let is_goldprice_part = name.starts_with("GoldPrice_") && name.contains("_x64-setup.exe.") && name.ends_with(".download");
+        let is_goldprice_part = name.starts_with("GoldPrice_")
+            && name.contains("_x64-setup.exe.")
+            && name.ends_with(".download");
         if !is_goldprice_setup && !is_goldprice_part {
             continue;
         }
@@ -1025,7 +1233,12 @@ async fn cleanup_update_downloads_cmd(keep_path: Option<String>) -> Result<(), S
 }
 
 #[tauri::command]
-async fn download_update(app: AppHandle, url: String, filename: String, download_id: String) -> Result<String, String> {
+async fn download_update(
+    app: AppHandle,
+    url: String,
+    filename: String,
+    download_id: String,
+) -> Result<String, String> {
     use futures_util::StreamExt;
     use tokio::time::{timeout, Duration};
 
@@ -1040,13 +1253,16 @@ async fn download_update(app: AppHandle, url: String, filename: String, download
         .build()
         .map_err(|e| e.to_string())?;
 
-    let _ = app.emit_all("download-progress", serde_json::json!({
-        "id": download_id,
-        "downloaded": 0,
-        "total": 0,
-        "percent": 0,
-        "phase": "connecting"
-    }));
+    let _ = app.emit_all(
+        "download-progress",
+        serde_json::json!({
+            "id": download_id,
+            "downloaded": 0,
+            "total": 0,
+            "percent": 0,
+            "phase": "connecting"
+        }),
+    );
 
     let resp = timeout(Duration::from_secs(25), client.get(&url).send())
         .await
@@ -1084,13 +1300,16 @@ async fn download_update(app: AppHandle, url: String, filename: String, download
         } else {
             0
         };
-        let _ = app.emit_all("download-progress", serde_json::json!({
-            "id": download_id,
-            "downloaded": downloaded,
-            "total": total,
-            "percent": percent,
-            "phase": "downloading"
-        }));
+        let _ = app.emit_all(
+            "download-progress",
+            serde_json::json!({
+                "id": download_id,
+                "downloaded": downloaded,
+                "total": total,
+                "percent": percent,
+                "phase": "downloading"
+            }),
+        );
     }
 
     // 安装包最小应有 1 MB，防止把错误页当成安装包保存
@@ -1124,13 +1343,16 @@ async fn download_update(app: AppHandle, url: String, filename: String, download
     }
 
     // 写入完成，推送 100%
-    let _ = app.emit_all("download-progress", serde_json::json!({
-        "id": download_id,
-        "downloaded": downloaded,
-        "total": total.max(downloaded),
-        "percent": 100,
-        "phase": "done"
-    }));
+    let _ = app.emit_all(
+        "download-progress",
+        serde_json::json!({
+            "id": download_id,
+            "downloaded": downloaded,
+            "total": total.max(downloaded),
+            "percent": 100,
+            "phase": "done"
+        }),
+    );
 
     Ok(file_path.to_string_lossy().to_string())
 }
@@ -1158,9 +1380,7 @@ async fn fetch_ws(
         .map_err(|e| e.to_string())?;
     for (key, value) in &headers {
         if let (Ok(name), Ok(val)) = (
-            tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(
-                key.as_bytes(),
-            ),
+            tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(key.as_bytes()),
             tokio_tungstenite::tungstenite::http::header::HeaderValue::from_str(value),
         ) {
             request.headers_mut().insert(name, val);
@@ -1204,35 +1424,13 @@ async fn fetch_ws(
     result
 }
 
-#[tauri::command]
-async fn install_update(app: AppHandle, path: String) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    let result = std::process::Command::new("cmd")
-        .args(&["/C", "start", "", &path])
-        .creation_flags(0x08000000)
-        .spawn();
-    match result {
-        Ok(_) => {
-            request_app_exit(&app, "install_update");
-            Ok(())
-        }
-        Err(e) => Err(format!("启动安装程序失败: {}", e)),
-    }
-}
-
 // ========== 辅助函数 ==========
 
 // WebView2 Runtime 144.x.x 回归 Bug：透明窗口会被重新画上系统标题栏
 // 参考：https://github.com/MicrosoftEdge/WebView2Feedback/issues/5492
 // 用替换 WNDPROC 方式拦截 WM_NCACTIVATE / WM_NCPAINT，阻止非客户区重绘
 #[cfg(target_os = "windows")]
-static ORIG_BUBBLE_PROC: std::sync::atomic::AtomicIsize =
-    std::sync::atomic::AtomicIsize::new(0);
-
-// 气泡窗口 HWND，供后台置顶任务使用
-#[cfg(target_os = "windows")]
-static BUBBLE_HWND: std::sync::atomic::AtomicIsize =
-    std::sync::atomic::AtomicIsize::new(0);
+static ORIG_BUBBLE_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn bubble_wnd_proc(
@@ -1296,20 +1494,21 @@ fn apply_frameless_style(window: &Window) {
 
             // 替换窗口过程以拦截 WM_NCACTIVATE/WM_NCPAINT（只安装一次）
             if ORIG_BUBBLE_PROC.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-                let orig = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, bubble_wnd_proc as *const () as isize);
+                let orig =
+                    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, bubble_wnd_proc as *const () as isize);
                 if orig != 0 {
                     ORIG_BUBBLE_PROC.store(orig, std::sync::atomic::Ordering::SeqCst);
                 }
             }
 
-            // 保存 HWND 供后台置顶任务使用
-            BUBBLE_HWND.store(hwnd.0 as isize, std::sync::atomic::Ordering::SeqCst);
-
             let _ = SetWindowPos(
                 hwnd,
-                HWND_TOPMOST,
-                0, 0, 0, 0,
-                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER,
+                HWND(0),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOZORDER,
             );
         }
     }
@@ -1329,8 +1528,8 @@ fn set_bubble_to_default_position(window: &Window) -> Result<(), String> {
         #[cfg(target_os = "windows")]
         let (work_right, work_bottom) = {
             use std::mem;
-            use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
             use windows::Win32::Foundation::RECT;
+            use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
             let mut rc: RECT = unsafe { mem::zeroed() };
             let ok = unsafe {
                 SystemParametersInfoW(
@@ -1338,7 +1537,8 @@ fn set_bubble_to_default_position(window: &Window) -> Result<(), String> {
                     0,
                     Some(&mut rc as *mut _ as *mut _),
                     windows::Win32::UI::WindowsAndMessaging::SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-                ).is_ok()
+                )
+                .is_ok()
             };
             if ok {
                 (rc.right as i32, rc.bottom as i32)
@@ -1373,15 +1573,26 @@ fn tray_toggle_label(label: &str, enabled: bool) -> String {
 
 fn create_tray_menu() -> SystemTray {
     let manager_item = CustomMenuItem::new("manager".to_string(), "管理界面");
-    let bubble_item = CustomMenuItem::new("bubble_toggle".to_string(), tray_toggle_label("浮窗显示", false));
+    let bubble_item = CustomMenuItem::new(
+        "bubble_toggle".to_string(),
+        tray_toggle_label("行情显示", false),
+    );
+    let taskbar_item = CustomMenuItem::new(
+        "taskbar_toggle".to_string(),
+        tray_toggle_label("任务栏展示", false),
+    );
     let reset_pos_item = CustomMenuItem::new("reset_position".to_string(), "重置浮窗位置");
-    let auto_start_item = CustomMenuItem::new("auto_start".to_string(), tray_toggle_label("开机自启", false));
+    let auto_start_item = CustomMenuItem::new(
+        "auto_start".to_string(),
+        tray_toggle_label("开机自启", false),
+    );
     let quit_item = CustomMenuItem::new("quit".to_string(), "退出");
 
     let tray_menu = SystemTrayMenu::new()
         .add_item(manager_item)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(bubble_item)
+        .add_item(taskbar_item)
         .add_item(reset_pos_item)
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(auto_start_item)
@@ -1393,20 +1604,38 @@ fn create_tray_menu() -> SystemTray {
 
 fn update_tray_menu(app: &AppHandle) {
     let state: tauri::State<AppState> = app.state();
-    let bubble_visible = *state.bubble_visible.lock().unwrap();
+    let display_status = app.state::<TaskbarHost>().status();
+    let display_visible = display_status.user_visible;
     let auto_start_enabled = *state.auto_start_enabled.lock().unwrap();
-    
+
     let manager_item = CustomMenuItem::new("manager".to_string(), "管理界面");
-    let bubble_item = CustomMenuItem::new("bubble_toggle".to_string(), tray_toggle_label("浮窗显示", bubble_visible));
+    let bubble_item = CustomMenuItem::new(
+        "bubble_toggle".to_string(),
+        tray_toggle_label("行情显示", display_visible),
+    );
+    let taskbar_item = CustomMenuItem::new(
+        "taskbar_toggle".to_string(),
+        tray_toggle_label(
+            "任务栏展示",
+            display_status.requested_mode == PriceDisplayMode::Taskbar,
+        ),
+    );
     let reset_pos_item = CustomMenuItem::new("reset_position".to_string(), "重置浮窗位置");
-    let auto_start_item = CustomMenuItem::new("auto_start".to_string(), tray_toggle_label("开机自启", auto_start_enabled));
+    let auto_start_item = CustomMenuItem::new(
+        "auto_start".to_string(),
+        tray_toggle_label("开机自启", auto_start_enabled),
+    );
     let quit_item = CustomMenuItem::new("quit".to_string(), "退出");
 
-    let tray_menu = SystemTrayMenu::new()
+    let mut tray_menu = SystemTrayMenu::new()
         .add_item(manager_item)
         .add_native_item(SystemTrayMenuItem::Separator)
-        .add_item(bubble_item)
-        .add_item(reset_pos_item)
+        .add_item(bubble_item);
+    tray_menu = tray_menu.add_item(taskbar_item);
+    if display_status.requested_mode == PriceDisplayMode::Bubble {
+        tray_menu = tray_menu.add_item(reset_pos_item);
+    }
+    let tray_menu = tray_menu
         .add_native_item(SystemTrayMenuItem::Separator)
         .add_item(auto_start_item)
         .add_native_item(SystemTrayMenuItem::Separator)
@@ -1419,57 +1648,33 @@ fn update_tray_menu(app: &AppHandle) {
 fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
     match event {
         SystemTrayEvent::LeftClick { .. } => {
-            if let Some(window) = app.get_window("bubble") {
-                let state: tauri::State<AppState> = app.state();
-                let mut bubble_visible = state.bubble_visible.lock().unwrap();
-                
-                if *bubble_visible {
-                    let _ = window.hide();
-                    *bubble_visible = false;
-                } else {
-                    let _ = window.show();
-                    #[cfg(target_os = "windows")]
-                    apply_frameless_style(&window);
-                    *bubble_visible = true;
-                }
-                drop(bubble_visible);
-                update_tray_menu(app);
-            }
+            show_manager_from_tray(app);
         }
         SystemTrayEvent::MenuItemClick { id, .. } => {
             match id.as_str() {
                 "manager" => {
-                    if let Some(window) = app.get_window("manager") {
-                        let _ = tauri::async_runtime::block_on(fit_manager_window(app.clone()));
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        fix_window_dpi(&window);
-                        let _ = window.set_always_on_top(true);
-                        let _ = window.set_always_on_top(false);
-                        #[cfg(target_os = "windows")]
-                        {
-                            let _ = window.set_focus();
-                        }
-                    }
+                    show_manager_from_tray(app);
                 }
                 "bubble_toggle" => {
-                    if let Some(window) = app.get_window("bubble") {
-                        let state: tauri::State<AppState> = app.state();
-                        let mut bubble_visible = state.bubble_visible.lock().unwrap();
-                        
-                        if *bubble_visible {
-                            let _ = window.hide();
-                            *bubble_visible = false;
+                    toggle_price_display(app);
+                }
+                "taskbar_toggle" => {
+                    let host = app.state::<TaskbarHost>();
+                    let mode = if host.status().requested_mode == PriceDisplayMode::Taskbar {
+                        PriceDisplayMode::Bubble
+                    } else {
+                        PriceDisplayMode::Taskbar
+                    };
+                    host.set_mode(mode);
+                    let _ = app.emit_all(
+                        "price-display-mode-changed",
+                        if mode == PriceDisplayMode::Taskbar {
+                            "taskbar"
                         } else {
-                            let _ = window.show();
-                            #[cfg(target_os = "windows")]
-                            apply_frameless_style(&window);
-                            *bubble_visible = true;
-                        }
-                        drop(bubble_visible);
-                        update_tray_menu(app);
-                    }
+                            "bubble"
+                        },
+                    );
+                    let _ = synchronize_price_display(app);
                 }
                 "refresh" => {
                     if let Some(window) = app.get_window("bubble") {
@@ -1485,10 +1690,10 @@ fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
                 "auto_start" => {
                     // Toggle auto-start
                     use auto_launch::*;
-                    
+
                     let state: tauri::State<AppState> = app.state();
                     let mut auto_start_enabled = state.auto_start_enabled.lock().unwrap();
-                    
+
                     if let Ok(app_path) = std::env::current_exe() {
                         if let Ok(auto) = AutoLaunchBuilder::new()
                             .set_app_name("GoldPrice")
@@ -1501,12 +1706,12 @@ fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
                             } else {
                                 auto.disable()
                             };
-                            
+
                             if result.is_ok() {
                                 *auto_start_enabled = new_state;
                                 drop(auto_start_enabled);
                                 update_tray_menu(app);
-                                
+
                                 // Notify manager window to update checkbox
                                 if let Some(manager_window) = app.get_window("manager") {
                                     let _ = manager_window.emit("auto-start-changed", new_state);
@@ -1525,10 +1730,47 @@ fn handle_tray_event(app: &AppHandle, event: SystemTrayEvent) {
     }
 }
 
+fn show_manager_from_tray(app: &AppHandle) {
+    let _ = tauri::async_runtime::block_on(open_manager(app.clone()));
+}
+
+fn toggle_price_display(app: &AppHandle) {
+    let host = app.state::<TaskbarHost>();
+    let visible = !host.status().user_visible;
+    host.set_user_visible(visible);
+    let _ = synchronize_price_display(app);
+}
+
+fn synchronize_price_display(app: &AppHandle) -> Result<(), String> {
+    let status = app.state::<TaskbarHost>().status();
+    let show_bubble = status.user_visible && status.actual_display == "bubble";
+    if let Some(window) = app.get_window("bubble") {
+        if show_bubble {
+            let was_visible = window.is_visible().unwrap_or(false);
+            constrain_bubble_to_work_area(&window)?;
+            window.show().map_err(|e| e.to_string())?;
+            #[cfg(target_os = "windows")]
+            apply_frameless_style(&window);
+            if !was_visible {
+                let _ = window.emit(
+                    "bubble-refresh-now",
+                    serde_json::json!({ "reason": "display_mode_restored" }),
+                );
+            }
+        } else {
+            window.hide().map_err(|e| e.to_string())?;
+        }
+    }
+    let state = app.state::<AppState>();
+    *state.bubble_visible.lock().unwrap() = show_bubble;
+    update_tray_menu(app);
+    Ok(())
+}
+
 // ========== Main ==========
 fn main() {
     let context = tauri::generate_context!();
-    
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 当用户尝试启动第二个实例时，将焦点放到已有的窗口上
@@ -1539,12 +1781,80 @@ fn main() {
             }
         }))
         .setup(|app| {
+            let app_handle_for_status = app.handle();
+            let display_transition_generation = std::sync::Arc::new(AtomicU64::new(0));
+            let status_callback: StatusCallback = std::sync::Arc::new(move |status| {
+                let generation = display_transition_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                let app_for_dispatch = app_handle_for_status.clone();
+                let status_for_log = status.clone();
+                let _ = app_handle_for_status.run_on_main_thread(move || {
+                    let _ = append_client_log_entry(
+                        &app_for_dispatch,
+                        if status_for_log.fallback_reason.is_some() {
+                            "warn"
+                        } else {
+                            "info"
+                        },
+                        "taskbar_host",
+                        "status_changed",
+                        "taskbar display status changed",
+                        serde_json::to_value(status_for_log).ok(),
+                    );
+                });
+
+                let is_transient_taskbar_fallback = status.user_visible
+                    && status.requested_mode == PriceDisplayMode::Taskbar
+                    && status.actual_display == "bubble";
+                if is_transient_taskbar_fallback {
+                    let app_for_fallback = app_handle_for_status.clone();
+                    let fallback_generation = display_transition_generation.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(1800)).await;
+                        if fallback_generation.load(Ordering::SeqCst) != generation {
+                            return;
+                        }
+                        let current = app_for_fallback.state::<TaskbarHost>().status();
+                        if !current.user_visible
+                            || current.requested_mode != PriceDisplayMode::Taskbar
+                            || current.actual_display != "bubble"
+                        {
+                            return;
+                        }
+                        let app_for_sync = app_for_fallback.clone();
+                        let _ = app_for_fallback.run_on_main_thread(move || {
+                            let _ = synchronize_price_display(&app_for_sync);
+                        });
+                    });
+                } else {
+                    let app_for_sync = app_handle_for_status.clone();
+                    let _ = app_handle_for_status.run_on_main_thread(move || {
+                        let _ = synchronize_price_display(&app_for_sync);
+                    });
+                }
+            });
+            app.manage(TaskbarHost::new());
+            app.state::<TaskbarHost>()
+                .start(app.handle(), status_callback);
+            let app_handle_for_taskbar_init = app.handle();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+                let status = app_handle_for_taskbar_init.state::<TaskbarHost>().status();
+                let _ = append_client_log_entry(
+                    &app_handle_for_taskbar_init,
+                    if status.supported { "info" } else { "warn" },
+                    "taskbar_host",
+                    "initialized",
+                    "taskbar display host initialized",
+                    serde_json::to_value(status).ok(),
+                );
+            });
+
             // Setup windows with shadows
             if let Some(window) = app.get_window("manager") {
                 #[cfg(target_os = "windows")]
                 let _ = set_shadow(&window, true);
             }
-            
+
             // Setup bubble window
             if let Some(window) = app.get_window("bubble") {
                 let _ = window.hide();
@@ -1557,56 +1867,67 @@ fn main() {
 
                     let win_ev = window.clone();
                     let app_handle_for_close = app.handle();
-                    window.on_window_event(move |event| {
-                        match event {
-                            tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Moved(_) => {
-                                apply_frameless_style(&win_ev);
-                            }
-                            tauri::WindowEvent::CloseRequested { api, .. } => {
-                                api.prevent_close();
-                                let _ = win_ev.hide();
-                                let state: tauri::State<AppState> = app_handle_for_close.state();
-                                *state.bubble_visible.lock().unwrap() = false;
-                                update_tray_menu(&app_handle_for_close);
-                                let _ = append_client_log_entry(
-                                    &app_handle_for_close,
-                                    "warn",
-                                    "window",
-                                    "bubble_close_intercepted",
-                                    "bubble close request intercepted and hidden instead",
-                                    None,
-                                );
-                            }
-                            tauri::WindowEvent::Destroyed => {
-                                let _ = append_client_log_entry(
-                                    &app_handle_for_close,
-                                    "error",
-                                    "window",
-                                    "bubble_window_destroyed",
-                                    "bubble window was destroyed",
-                                    None,
-                                );
-                            }
-                            _ => {}
+                    window.on_window_event(move |event| match event {
+                        tauri::WindowEvent::Focused(true) => {
+                            apply_frameless_style(&win_ev);
                         }
+                        tauri::WindowEvent::Moved(_) => {
+                            apply_frameless_style(&win_ev);
+                            let _ = constrain_bubble_to_work_area(&win_ev);
+                        }
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            api.prevent_close();
+                            let _ = win_ev.hide();
+                            let state: tauri::State<AppState> = app_handle_for_close.state();
+                            *state.bubble_visible.lock().unwrap() = false;
+                            update_tray_menu(&app_handle_for_close);
+                            let _ = append_client_log_entry(
+                                &app_handle_for_close,
+                                "warn",
+                                "window",
+                                "bubble_close_intercepted",
+                                "bubble close request intercepted and hidden instead",
+                                None,
+                            );
+                        }
+                        tauri::WindowEvent::Destroyed => {
+                            let _ = append_client_log_entry(
+                                &app_handle_for_close,
+                                "error",
+                                "window",
+                                "bubble_window_destroyed",
+                                "bubble window was destroyed",
+                                None,
+                            );
+                        }
+                        _ => {}
                     });
                 }
 
                 let _ = window.set_always_on_top(true);
 
                 let app_handle = app.handle();
-                if let Ok(Some((x, y))) = tauri::async_runtime::block_on(load_bubble_position(app_handle)) {
+                if let Ok(Some((x, y))) =
+                    tauri::async_runtime::block_on(load_bubble_position(app_handle))
+                {
                     // 检查保存的位置是否仍在某个显示器范围内，防止切换/缩放后气泡飞出屏幕
-                    let in_bounds = window.available_monitors().ok()
-                        .map(|monitors| monitors.iter().any(|m| {
-                            let pos = m.position();
-                            let size = m.size();
-                            x >= pos.x && x < pos.x + size.width as i32 &&
-                            y >= pos.y && y < pos.y + size.height as i32
-                        }))
+                    let in_bounds = window
+                        .available_monitors()
+                        .ok()
+                        .map(|monitors| {
+                            monitors.iter().any(|m| {
+                                let pos = m.position();
+                                let size = m.size();
+                                x >= pos.x
+                                    && x < pos.x + size.width as i32
+                                    && y >= pos.y
+                                    && y < pos.y + size.height as i32
+                            })
+                        })
                         .unwrap_or(false);
                     if in_bounds {
                         let _ = window.set_position(PhysicalPosition::new(x, y));
+                        let _ = constrain_bubble_to_work_area(&window);
                         let _ = append_client_log_entry(
                             &app.handle(),
                             "info",
@@ -1645,67 +1966,37 @@ fn main() {
                 {
                     std::thread::sleep(std::time::Duration::from_millis(80));
                     apply_frameless_style(&window);
-
-                    let state: tauri::State<AppState> = app.state();
-                    if !state.bubble_topmost_task_started.swap(true, Ordering::SeqCst) {
-                        let app_handle = app.handle();
-                        tauri::async_runtime::spawn(async move {
-                            loop {
-                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                                let Some(window) = app_handle.get_window("bubble") else { break; };
-                                if !window.is_visible().unwrap_or(false) {
-                                    continue;
-                                }
-                                let hwnd_val = BUBBLE_HWND.load(Ordering::SeqCst);
-                                if hwnd_val == 0 { continue; }
-                                unsafe {
-                                    use windows::Win32::Foundation::HWND;
-                                    use windows::Win32::UI::WindowsAndMessaging::{
-                                        SetWindowPos, HWND_TOPMOST,
-                                        SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE,
-                                    };
-                                    let _ = SetWindowPos(
-                                        HWND(hwnd_val),
-                                        HWND_TOPMOST,
-                                        0, 0, 0, 0,
-                                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                                    );
-                                }
-                            }
-                        });
-                    }
                 }
             }
-            
+
             // Setup manager window
             if let Some(window) = app.get_window("manager") {
                 // 关闭改为隐藏
                 let app_handle_for_manager = app.handle();
                 let window_clone = window.clone();
-                window.on_window_event(move |event| {
-                    match event {
-                        tauri::WindowEvent::Resized(_)
-                        | tauri::WindowEvent::Moved(_)
-                        | tauri::WindowEvent::ScaleFactorChanged { .. }
-                        | tauri::WindowEvent::Focused(true) => {
-                            schedule_manager_dpi_fix(window_clone.clone());
-                        }
-                        tauri::WindowEvent::CloseRequested { api, .. } => {
-                            api.prevent_close();
-                            let _ = window_clone.hide();
-                        }
-                        tauri::WindowEvent::Destroyed => {
-                            let _ = append_client_log_entry(
-                                &app_handle_for_manager,
-                                "error",
-                                "window",
-                                "manager_window_destroyed",
-                                "manager window was destroyed",
-                                None,
-                            );
-                        }
-                        _ => {}
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                        let fit_app = app_handle_for_manager.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                            let _ = fit_manager_window(fit_app).await;
+                        });
                     }
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = window_clone.hide();
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        let _ = append_client_log_entry(
+                            &app_handle_for_manager,
+                            "error",
+                            "window",
+                            "manager_window_destroyed",
+                            "manager window was destroyed",
+                            None,
+                        );
+                    }
+                    _ => {}
                 });
 
                 // 只有第一次安装/启动才主动打开管理界面
@@ -1724,7 +2015,7 @@ fn main() {
                     })
                     .unwrap_or(true);
 
-                if is_first_launch {
+                if cfg!(debug_assertions) || is_first_launch {
                     let _ = window.show();
                     let _ = window.set_focus();
                     fix_window_dpi(&window);
@@ -1738,7 +2029,7 @@ fn main() {
                 }
                 // 非首次启动：管理界面隐藏，通过托盘菜单打开
             }
-            
+
             // 检查实际的开机自启状态并更新
             let state: tauri::State<AppState> = app.state();
             if let Ok(app_path) = std::env::current_exe() {
@@ -1752,21 +2043,15 @@ fn main() {
                     }
                 }
             }
-            
+
             // 更新托盘菜单以反映当前状态
             update_tray_menu(&app.handle());
             initialize_session_tracking(&app.handle())?;
-            #[cfg(target_os = "windows")]
-            {
-                let _ = spawn_restart_watchdog(&app.handle());
-            }
-            
             Ok(())
         })
         .manage(AppState {
             bubble_visible: Mutex::new(false),
             auto_start_enabled: Mutex::new(false),
-            bubble_topmost_task_started: AtomicBool::new(false),
             active_download_id: Mutex::new(None),
         })
         .system_tray(create_tray_menu())
@@ -1777,6 +2062,9 @@ fn main() {
             fit_manager_window,
             hide_bubble,
             show_bubble,
+            set_price_display_mode,
+            update_taskbar_display,
+            get_taskbar_display_status,
             resize_bubble,
             set_bubble_size,
             open_devtools,
@@ -1798,11 +2086,34 @@ fn main() {
             download_update,
             cancel_download_update,
             cleanup_update_downloads_cmd,
-            install_update,
             fetch_with_pre,
             fetch_ws,
             open_bubble_devtools,
         ])
-        .run(context)
-        .expect("error while running tauri application");
+        .build(context)
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                api.prevent_exit();
+                let _ = append_client_log_entry(
+                    app,
+                    "info",
+                    "lifecycle",
+                    "automatic_exit_prevented",
+                    "automatic event-loop exit prevented for tray-resident app",
+                    None,
+                );
+            }
+            tauri::RunEvent::Exit => {
+                let _ = append_client_log_entry(
+                    app,
+                    "error",
+                    "lifecycle",
+                    "event_loop_exited",
+                    "tauri event loop exited directly",
+                    None,
+                );
+            }
+            _ => {}
+        });
 }

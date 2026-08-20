@@ -4,7 +4,7 @@
             <div class="card">
               <div class="card-header">
                 <div class="card-title-block">
-                  <h2>实时金价 <span class="card-title-spark" aria-hidden="true">✦</span></h2>
+                  <h2>实时金价</h2>
                   <div class="fetch-rate-hint">每 <span id="fetch-rate-sec">5</span> 秒自动抓取一次实时数据</div>
                 </div>
                 <div class="card-header-right">
@@ -62,7 +62,13 @@
                   <button class="chart-currency-btn gp-segment-btn" data-currency="usd">USD</button>
                   </div>
                 </div>
-                <div id="chart-price-display" class="chart-price-display">—</div>
+                <div id="chart-price-display" class="chart-price-display">
+                  <span class="number-loading-dots" role="status" aria-label="行情加载中">
+                    <span class="number-loading-dot"></span>
+                    <span class="number-loading-dot"></span>
+                    <span class="number-loading-dot"></span>
+                  </span>
+                </div>
                 <div id="chart-change-display" class="chart-change-display"></div>
               </div>
               <div class="chart-meta-right">
@@ -100,6 +106,41 @@
 
           <!-- ===== Bubble Style View ===== -->
           <section id="view-bubble-style" class="view">
+            <div class="style-panel display-mode-panel" id="price-display-settings">
+              <div class="settings-panel-head">
+                <div>
+                  <h3 class="section-title">行情显示方式</h3>
+                </div>
+              </div>
+              <div class="display-mode-toolbar">
+                <div class="display-mode-segment" id="price-display-mode" role="radiogroup" aria-label="行情显示方式">
+                  <button class="gp-segment-btn display-mode-choice" type="button" role="radio" data-display-mode="bubble">
+                    <span class="display-mode-choice-title">桌面浮窗</span>
+                  </button>
+                  <button class="gp-segment-btn display-mode-choice" type="button" role="radio" data-display-mode="taskbar">
+                    <span class="display-mode-choice-title">任务栏</span>
+                  </button>
+                </div>
+                <p id="taskbar-display-status" class="taskbar-display-status">正在检测任务栏</p>
+              </div>
+              <div id="taskbar-display-options" class="taskbar-display-options">
+                <div class="taskbar-option-row">
+                  <span class="switch-label">隐藏行情名称</span>
+                  <label class="switch gp-td-switch">
+                    <input type="checkbox" id="taskbar-hide-labels" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <label class="taskbar-placement-row" for="taskbar-placement">
+                  <span class="switch-label">吸附位置</span>
+                  <select id="taskbar-placement" class="input">
+                    <option value="right">右侧（通知区图标左边）</option>
+                    <option value="left">左侧（天气组件右侧）</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
             <div class="style-panel">
               <h3 class="section-title">外观设置</h3>
 

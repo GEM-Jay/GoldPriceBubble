@@ -360,10 +360,10 @@
   display: flex !important;
   flex-direction: row !important;
   flex-wrap: nowrap !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: 100vw !important;
-  max-height: 100vh !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
 }
 
 .tdesign-manager-shell .sidebar {
@@ -394,13 +394,22 @@
 
 .tdesign-manager-shell .main,
 .tdesign-manager-shell .manager-main-content,
+.tdesign-manager-shell .manager-content-host,
 .tdesign-manager-shell .content {
   width: 100%;
+  min-width: 0 !important;
   min-height: 0 !important;
 }
 
+.tdesign-manager-shell .manager-content-host {
+  display: flex;
+  flex: 1 1 0;
+  height: 100%;
+  overflow: hidden;
+}
+
 .tdesign-manager-shell .content {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0 !important;
   height: 100%;
   overflow-y: scroll !important;
@@ -450,10 +459,12 @@
 .tdesign-manager-shell .price-select-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(320px, 420px)) !important;
-  gap: 12px 14px;
+  gap: 12px 20px;
   justify-content: center !important;
   align-content: start;
   width: 100%;
+  padding-inline: 18px;
+  margin-inline: 0;
 }
 
 @media (max-width: 1100px) {
@@ -472,18 +483,23 @@
 
   .tdesign-manager-shell .price-select-list {
     grid-template-columns: repeat(2, minmax(280px, 1fr)) !important;
+    padding-inline: 12px;
   }
 }
 
 @media (max-width: 920px) {
   .tdesign-manager-shell .price-select-list {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px 14px;
+    padding-inline: 8px;
   }
 }
 
 @media (max-width: 760px) {
   .tdesign-manager-shell .price-select-list {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px;
+    padding-inline: 4px;
   }
 
   .tdesign-manager-shell .price-card,
@@ -561,11 +577,11 @@
 
 /* Price page sizing */
 .tdesign-manager-shell #view-prices .card {
-  width: min(100%, 1180px);
-  max-width: 1180px;
+  width: 100%;
+  max-width: none;
   min-height: 0;
-  margin-left: auto;
-  margin-right: auto;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .tdesign-manager-shell .price-card {
@@ -831,6 +847,29 @@
   color: #fff !important;
 }
 
+.tdesign-manager-shell .display-mode-segment .display-mode-choice.t-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 76px;
+  height: auto;
+  padding: 14px 16px;
+  color: var(--text-primary);
+  text-align: left;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+}
+
+.tdesign-manager-shell .display-mode-segment .display-mode-choice.active.t-button {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+}
+
 [data-theme="dark"] .tdesign-manager-shell .gp-btn-danger.t-button {
   background: #d54941 !important;
   border-color: #d54941 !important;
@@ -967,4 +1006,128 @@
 
 [data-theme="dark"] .tdesign-manager-shell .preview-separator {
   background: #2f3948 !important;
+}
+
+/* Keep the fixed sidebar and flexible main area inside the viewport. */
+.tdesign-manager-shell.app > .t-layout.main {
+  flex: 1 1 0 !important;
+  width: 0 !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.tdesign-manager-shell .topbar,
+.tdesign-manager-shell .manager-main-content {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.tdesign-manager-shell .topbar-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tdesign-manager-shell .topbar-right {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.tdesign-manager-shell .sidebar-nav {
+  flex: 1 1 0 !important;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.tdesign-manager-shell .sidebar-footer {
+  flex: 0 0 auto;
+  min-height: max-content;
+}
+
+/* Native WebView sizing: CSS pixels already follow the Windows DPI scale. */
+.tdesign-manager-shell,
+.tdesign-manager-shell * {
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+.tdesign-manager-shell {
+  font-weight: 300;
+}
+
+.tdesign-manager-shell .bubble-preview > .t-card__body {
+  min-width: 0;
+  padding: 0 !important;
+}
+
+.tdesign-manager-shell .bp-header {
+  width: 100%;
+  gap: 6px;
+}
+
+.tdesign-manager-shell .bp-title,
+.tdesign-manager-shell .bp-mode {
+  white-space: nowrap;
+}
+
+.tdesign-manager-shell .topbar {
+  flex: 0 0 56px;
+  overflow: hidden;
+}
+
+.tdesign-manager-shell .top-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tdesign-manager-shell .topbar-right,
+.tdesign-manager-shell .window-controls {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.tdesign-manager-shell .window-controls,
+.tdesign-manager-shell .wc-btn {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1100px) {
+  .tdesign-manager-shell .sidebar {
+    width: 156px !important;
+    min-width: 156px !important;
+    max-width: 156px !important;
+    flex-basis: 156px !important;
+  }
+
+  .tdesign-manager-shell .topbar-last-update {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .tdesign-manager-shell .sidebar {
+    width: 140px !important;
+    min-width: 140px !important;
+    max-width: 140px !important;
+    flex-basis: 140px !important;
+  }
+
+  .tdesign-manager-shell .topbar {
+    padding-left: 12px;
+    padding-right: 8px;
+  }
+
+  .tdesign-manager-shell .topbar-left {
+    flex-basis: 0;
+  }
+
+  .tdesign-manager-shell .topbar-right {
+    gap: 4px;
+  }
+
+  .tdesign-manager-shell .topbar-action-btn.t-button {
+    padding-inline: 10px;
+  }
 }

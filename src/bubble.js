@@ -371,7 +371,7 @@ function _buildBubbleLines() {
         const priceObj = state.prices.find(p => p.code === w.refPrice);
         const currentPrice = priceObj?.value || 0;
         const currentValue = w.totalGrams * currentPrice;
-        const pnl = currentValue - (w.totalCost || 0);
+        const pnl = currentValue - (w.totalCost || 0) + (Number(w.realizedPnl) || 0);
         if (getCurrency(w.refPrice) === '￥' || getCurrency(w.refPrice) === '¥') totalPnl += pnl;
       });
       selectedPnls.push({ name: '总仓营收', pnl: totalPnl });
@@ -382,7 +382,7 @@ function _buildBubbleLines() {
       if (!warehouse) return;
       const priceObj = state.prices.find(p => p.code === warehouse.refPrice);
       const currentPrice = priceObj?.value || 0;
-      const pnl = warehouse.totalGrams * currentPrice - (warehouse.totalCost || 0);
+      const pnl = warehouse.totalGrams * currentPrice - (warehouse.totalCost || 0) + (Number(warehouse.realizedPnl) || 0);
       selectedPnls.push({ name: warehouse.name, pnl });
     });
   }
@@ -472,7 +472,7 @@ function renderBubble() {
   _applyBubbleVisualState();
 
   if (!structureMatch || visualSignatureBefore !== _lastVisualSignature) {
-    _allowResizeObserverUntil = Date.now() + 800;
+    _ignoreResizeObserverUntil = Date.now() + 300;
     scheduleResize('render');
   }
 }
@@ -483,8 +483,15 @@ let _resizing = false;
 let _resizeQueued = false;
 let _bubbleShown = false;
 let _hasRealContent = false;
-let _allowResizeObserverUntil = 0;
+let _ignoreResizeObserverUntil = 0;
 const RESIZE_STABLE_DELTA_PX = 4;
+
+function forceBubbleResize(reason) {
+  _lastResizeW = 0;
+  _lastResizeH = 0;
+  _lastResizeAppliedSignature = '';
+  scheduleResize(reason);
+}
 
 function _measureNaturalSize(bubbleRoot) {
   const html = document.documentElement;
@@ -571,6 +578,7 @@ async function resizeBubble() {
     }
 
     try {
+      _ignoreResizeObserverUntil = Date.now() + 300;
       await invoke('set_bubble_size', { width: finalW, height: finalH });
     } catch (_) {
       if (_isBubbleUnloading) return;
@@ -628,7 +636,10 @@ function initResizeObserver() {
   if (!bubbleRoot) return;
   if (_resizeObserver) return;
   _resizeObserver = new ResizeObserver(() => {
-    if (!_bubbleShown || Date.now() < _allowResizeObserverUntil) scheduleResize('resize_observer');
+    // Render paths schedule their own resize. Observing while hidden or right
+    // after the native resize creates a DPI rounding feedback loop on Win10.
+    if (!_bubbleShown || _resizing || Date.now() < _ignoreResizeObserverUntil) return;
+    scheduleResize('resize_observer');
   });
   _resizeObserver.observe(bubbleRoot);
   registerCleanup(() => {
@@ -647,19 +658,7 @@ function refreshFromSnapshot(snapshot) {
 }
 
 function renderCachedPricesIfAvailable() {
-  const cachedPrices = typeof dataSource.loadPrices === 'function' ? dataSource.loadPrices() : [];
-  if (!Array.isArray(cachedPrices) || cachedPrices.length === 0) return false;
-  state.oldPrices = {};
-  state.prices = cachedPrices;
-  const savedCodes = localStorage.getItem('selectedCodes');
-  if (savedCodes !== null) {
-    try { state.selectedCodes = JSON.parse(savedCodes); } catch (_) {}
-  }
-  _normalizeBubbleSelectedCodes();
-  renderBubble();
-  updateStatusIndicator(false);
-  appLog('warn', 'bubble', 'cached_prices_rendered', 'bubble rendered cached prices while waiting for live snapshot', _getBubbleDiagnostics());
-  return true;
+  return false;
 }
 
 // ========== 初始化 ==========
@@ -728,6 +727,7 @@ async function init() {
     loadConfig();
     _normalizeBubbleSelectedCodes();
     renderBubble();
+    forceBubbleResize('forced_refresh');
   });
   registerCleanup(() => { try { unlistenRefresh(); } catch (_) {} });
 
